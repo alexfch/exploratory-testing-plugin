@@ -1,0 +1,6 @@
+{
+  "name": "exploratory-testing",
+  "version": "0.1.0",
+  "description": "Tests applications following exploratory testing approach",
+  "author": { "name": "Oleksandr Bolzhelarskyi" }
+}
