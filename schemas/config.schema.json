@@ -1,0 +1,399 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:exploratory-testing-plugin:config:v1",
+  "title": "Release Helper config",
+  "description": "User/project configuration written by the setup skill. Contains references to secrets, never the secrets themselves.",
+  "type": "object",
+  "required": ["schema_version", "environments", "sources"],
+  "additionalProperties": false,
+
+  "properties": {
+    "schema_version": {
+      "description": "Bump when the structure changes so validate.py can detect and migrate old configs.",
+      "const": 1
+    },
+
+    "environments": {
+      "description": "One or many test environments.",
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "$ref": "#/$defs/environment" }
+    },
+
+    "sources": {
+      "description": "Where product knowledge lives. Any mix of types. Each type maps to an adapter in skills/sources/<type>.md.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          { "$ref": "#/$defs/jiraSource" },
+          { "$ref": "#/$defs/confluenceSource" },
+          { "$ref": "#/$defs/fileSource" },
+          { "$ref": "#/$defs/urlSource" },
+          { "$ref": "#/$defs/otherSource" }
+        ]
+      }
+    },
+
+    "notes": {
+      "description": "Free-form catch-all for setup details the schema does not cover. Safe place for Claude to improvise.",
+      "type": "string",
+      "maxLength": 2000
+    }
+  },
+
+  "$defs": {
+    "name": {
+      "description": "Short identifier: lowercase letters, digits, underscores, hyphens.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "maxLength": 64
+    },
+
+    "secretRef": {
+      "description": "Pointer to a secret stored elsewhere. 'keychain:<service>/<account>' or 'env:<VARIABLE_NAME>'. Raw secrets are rejected by design.",
+      "type": "string",
+      "pattern": "^(keychain:[^/\\s]+/[^\\s]+|env:[A-Z_][A-Z0-9_]*)$"
+    },
+
+    "account": {
+      "type": "object",
+      "required": ["username"],
+      "additionalProperties": false,
+      "properties": {
+        "username": { "type": "string", "minLength": 1 },
+        "password_ref": { "$ref": "#/$defs/secretRef" },
+        "token_ref": { "$ref": "#/$defs/secretRef" },
+        "role": {
+          "description": "Optional label such as admin, viewer, tester. Lets the orchestrator pick the right account when the environment lists several.",
+          "type": "string"
+        }
+      }
+    },
+
+    "environment": {
+      "type": "object",
+      "required": ["name", "safety", "targets"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "$ref": "#/$defs/name" },
+        "safety": { "$ref": "#/$defs/safety" },
+        "accounts": {
+          "description": "Accounts that can be used in this environment. Optional: omit for environments that need no login. If an environment has several, use 'role' to tell them apart.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/account" }
+        },
+        "targets": {
+          "description": "What is tested in this environment. One or more; any mix of web, ios, android and api.",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/webTarget" },
+              { "$ref": "#/$defs/mobileTarget" },
+              { "$ref": "#/$defs/apiTarget" }
+            ]
+          }
+        },
+        "notes": { "type": "string", "maxLength": 500 }
+      }
+    },
+
+    "safety": {
+      "description": "What the skill may do in this environment. Required, so nobody gets permissive behavior by leaving it out. The meaning of each value is defined in the orchestrator's safety policy; resolve.py prints the resulting rules in plain language.",
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "test: data may be freely created, changed and deleted. prod_like: realistic or real data; create and change only data made during the run, no bulk deletes, don't touch existing records. production: observe only; no state-changing actions, ask before anything else.",
+          "enum": ["test", "prod_like", "production"]
+        },
+        "allow_destructive": {
+          "description": "If false, never delete or overwrite existing data, whatever 'kind' says. Omitted means false. Cannot be true for 'production'.",
+          "type": "boolean"
+        }
+      },
+      "if": {
+        "properties": { "kind": { "const": "production" } },
+        "required": ["kind"]
+      },
+      "then": {
+        "properties": { "allow_destructive": { "const": false } }
+      }
+    },
+
+    "webTarget": {
+      "type": "object",
+      "required": ["type", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "web" },
+        "url": { "type": "string", "format": "uri", "pattern": "^https?://" }
+      }
+    },
+
+    "mobileTarget": {
+      "type": "object",
+      "required": ["type", "app_id"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["ios", "android"] },
+        "app_id": {
+          "description": "Bundle identifier (iOS) or package name (Android), e.g. com.acme.shop.staging.",
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_-]*)+$"
+        },
+        "build": {
+          "description": "Where the build under test comes from: a distribution channel, a prebuilt local file, or the project's own source code. Optional (e.g. when the app is already installed on the device).",
+          "oneOf": [
+            { "$ref": "#/$defs/distributionBuild" },
+            { "$ref": "#/$defs/fileBuild" },
+            { "$ref": "#/$defs/sourceBuild" }
+          ]
+        },
+        "devices": {
+          "description": "Preferred devices or simulators, e.g. 'iPhone 15 simulator', 'Pixel 8 emulator'.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+
+    "apiTarget": {
+      "description": "A backend API tested directly, independent of any UI. Use one target per API if the environment has several.",
+      "type": "object",
+      "required": ["type", "base_url"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "api" },
+        "base_url": { "type": "string", "format": "uri", "pattern": "^https?://" },
+        "protocol": {
+          "description": "API style. Omitted means rest.",
+          "enum": ["rest", "graphql", "grpc", "soap", "other"]
+        },
+        "spec": {
+          "description": "API specification (OpenAPI/Swagger file, GraphQL schema, .proto): a path relative to the project root, or an https URL.",
+          "type": "string",
+          "minLength": 1
+        },
+        "auth": { "$ref": "#/$defs/apiAuth" },
+        "description": {
+          "description": "What this API does and any quirks, in the user's words. Useful when an environment has several APIs.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    },
+
+    "apiAuth": {
+      "description": "How to authenticate against the API. These are service-level credentials, separate from the user logins in 'accounts'. Secrets are references only. Omitted means the API needs no authentication.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type"],
+          "additionalProperties": false,
+          "properties": { "type": { "const": "none" } }
+        },
+        {
+          "type": "object",
+          "required": ["type", "token_ref"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "bearer" },
+            "token_ref": { "$ref": "#/$defs/secretRef" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "key_ref"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "api_key" },
+            "key_ref": { "$ref": "#/$defs/secretRef" },
+            "name": {
+              "description": "Header or query parameter name. Omitted means X-API-Key.",
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]+$"
+            },
+            "in": {
+              "description": "Where the key is sent. Omitted means header.",
+              "enum": ["header", "query"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "username", "password_ref"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "basic" },
+            "username": { "type": "string", "minLength": 1 },
+            "password_ref": { "$ref": "#/$defs/secretRef" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "token_url", "client_id", "client_secret_ref"],
+          "additionalProperties": false,
+          "properties": {
+            "type": { "const": "oauth2_client_credentials" },
+            "token_url": { "type": "string", "format": "uri", "pattern": "^https://" },
+            "client_id": { "type": "string", "minLength": 1 },
+            "client_secret_ref": { "$ref": "#/$defs/secretRef" },
+            "scope": { "type": "string" }
+          }
+        }
+      ]
+    },
+
+    "distributionBuild": {
+      "description": "A build downloaded from a distribution channel.",
+      "type": "object",
+      "required": ["type", "channel"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "distribution" },
+        "channel": { "enum": ["testflight", "firebase", "app_store", "play_store", "other"] }
+      }
+    },
+
+    "fileBuild": {
+      "description": "A prebuilt .ipa / .apk / .app already on disk.",
+      "type": "object",
+      "required": ["type", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "file" },
+        "path": { "description": "Path relative to the project root.", "type": "string", "minLength": 1 }
+      }
+    },
+
+    "sourceBuild": {
+      "description": "Build the app from the source code of the project the skill is running in. Use the scheme/configuration/variant that produces this environment's build (e.g. a Staging scheme).",
+      "type": "object",
+      "required": ["type", "tool"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "source" },
+        "tool": { "enum": ["xcodebuild", "gradle", "flutter", "react_native", "expo", "other"] },
+        "project_path": {
+          "description": "Xcode .xcworkspace/.xcodeproj, or the Gradle project directory, relative to the project root.",
+          "type": "string",
+          "minLength": 1
+        },
+        "scheme": {
+          "description": "Xcode scheme that produces this environment's build, e.g. MyApp-Staging.",
+          "type": "string",
+          "minLength": 1
+        },
+        "configuration": {
+          "description": "Xcode build configuration, e.g. Debug, Release, Staging.",
+          "type": "string",
+          "minLength": 1
+        },
+        "variant": {
+          "description": "Gradle build variant, e.g. stagingDebug.",
+          "type": "string",
+          "minLength": 1
+        },
+        "command": {
+          "description": "Custom build command. Required when tool is 'other'; optional override for the other tools.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "tool": { "const": "xcodebuild" } }, "required": ["tool"] },
+          "then": { "required": ["project_path", "scheme"] }
+        },
+        {
+          "if": { "properties": { "tool": { "const": "gradle" } }, "required": ["tool"] },
+          "then": { "required": ["variant"] }
+        },
+        {
+          "if": { "properties": { "tool": { "const": "other" } }, "required": ["tool"] },
+          "then": { "required": ["command"] }
+        }
+      ]
+    },
+
+    "sourceDescription": {
+      "description": "What this source contains and when to use it, in the user's words. Claude reads it to decide which sources a task needs, e.g. 'Epics are features; NFRs are tagged nfr' or 'Architecture and supported-devices matrix. Not requirements.'",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 500
+    },
+
+    "jiraSource": {
+      "type": "object",
+      "required": ["type", "project"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "jira" },
+        "description": { "$ref": "#/$defs/sourceDescription" },
+        "project": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]+$" },
+        "site": { "type": "string", "format": "uri", "pattern": "^https://" },
+        "jql": { "description": "Optional extra filter, e.g. for release scope.", "type": "string" }
+      }
+    },
+
+    "confluenceSource": {
+      "type": "object",
+      "required": ["type", "space"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "confluence" },
+        "description": { "$ref": "#/$defs/sourceDescription" },
+        "space": { "type": "string", "minLength": 1 },
+        "site": { "type": "string", "format": "uri", "pattern": "^https://" }
+      }
+    },
+
+    "fileSource": {
+      "type": "object",
+      "required": ["type", "path"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "file" },
+        "description": { "$ref": "#/$defs/sourceDescription" },
+        "path": {
+          "description": "Path relative to the project root.",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+
+    "urlSource": {
+      "type": "object",
+      "required": ["type", "url"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "url" },
+        "description": { "$ref": "#/$defs/sourceDescription" },
+        "url": { "type": "string", "format": "uri", "pattern": "^https?://" }
+      }
+    },
+
+    "otherSource": {
+      "description": "Fallback for tools without an adapter; handled by skills/sources/generic.md.",
+      "type": "object",
+      "required": ["type", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "other" },
+        "description": {
+          "description": "What the tool is and how to reach it, in the user's words.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        }
+      }
+    }
+  }
+}
