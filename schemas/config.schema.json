@@ -95,16 +95,22 @@
 
     "environment": {
       "type": "object",
-      "required": ["name", "safety", "targets"],
+      "required": ["name", "safety", "accounts", "targets"],
       "additionalProperties": false,
       "properties": {
         "name": { "$ref": "#/$defs/name" },
         "safety": { "$ref": "#/$defs/safety" },
         "accounts": {
-          "description": "Accounts that can be used in this environment. Optional: omit for environments that need no login. If an environment has several, use 'role' to tell them apart.",
-          "type": "array",
-          "uniqueItems": true,
-          "items": { "$ref": "#/$defs/account" }
+          "description": "Who the tests log in as in this environment: a list of at least one account, or the word not_needed, meaning Claude does not log in (and asks the user if the app demands a login anyway). Required, so a forgotten login is never mistaken for 'no login needed'. With several accounts, use 'role' to tell them apart.",
+          "oneOf": [
+            {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/account" }
+            },
+            { "const": "not_needed" }
+          ]
         },
         "targets": {
           "description": "What is tested in this environment. One or more; any mix of web, ios, android and api.",
@@ -135,6 +141,19 @@
         "allow_destructive": {
           "description": "If false, never delete or overwrite existing data, whatever 'kind' says. Omitted means false. Cannot be true for 'production'.",
           "type": "boolean"
+        },
+        "allow_account_creation": {
+          "description": "Lets Claude sign up accounts through the app (for apps with self-registration, or to test sign-up). Omitted means Claude may not create accounts. Not allowed for 'production'. Registration uses only the address built from email_pattern.",
+          "type": "object",
+          "required": ["email_pattern"],
+          "additionalProperties": false,
+          "properties": {
+            "email_pattern": {
+              "description": "Email address to register with. Exactly one {run} before the @, replaced by an id unique to each run, e.g. qa+{run}@acme-test.com. Use an address the team controls or a test domain that discards mail.",
+              "type": "string",
+              "pattern": "^[^@\\s{}]*\\{run\\}[^@\\s{}]*@[^@\\s{}]+\\.[^@\\s{}]+$"
+            }
+          }
         }
       },
       "if": {
@@ -142,7 +161,8 @@
         "required": ["kind"]
       },
       "then": {
-        "properties": { "allow_destructive": { "const": false } }
+        "properties": { "allow_destructive": { "const": false } },
+        "not": { "required": ["allow_account_creation"] }
       }
     },
 

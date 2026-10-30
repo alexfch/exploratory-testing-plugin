@@ -2,7 +2,7 @@
 """Validate a plugin config.yaml.
 
 Usage:
-    validate.py <config.yaml> [--project-root DIR] [--schema FILE]
+    validate_config.py <config.yaml> [--project-root DIR] [--schema FILE]
 
 Checks, in order:
   1. The file parses as YAML, with no duplicate keys.
@@ -68,14 +68,29 @@ def is_discriminator(err):
     return list(err.relative_path) == ["type"] and err.validator in ("const", "enum")
 
 
-def message(err):
+def is_shallow(err):
+    """True for 'this value is the wrong kind of thing altogether' (wrong type or constant)."""
+    return not err.relative_path and err.validator in ("type", "const", "enum")
+
+
+# Fields where "does not match any allowed shape" deserves a more helpful sentence.
+HINTS = {"accounts": "must be a list of at least one account, or the word not_needed"}
+
+
+def message(err, path=()):
     """Describe an error WITHOUT echoing the offending value."""
     v, val = err.validator, err.validator_value
-    last = str(err.relative_path[-1]) if err.relative_path else ""
+    last = str(path[-1]) if path else (str(err.relative_path[-1]) if err.relative_path else "")
     if v == "pattern" and last.endswith("_ref"):
         return "must be 'secret:NAME' with NAME in capitals, digits and underscores (a reference, never the secret itself)"
+    if v == "required" and err.message.startswith("'accounts'"):
+        return "'accounts' is required: list the accounts, or write accounts: not_needed"
     if v in ("required", "additionalProperties"):
         return err.message  # names the property only
+    if v == "pattern" and last == "email_pattern":
+        return "must be an email address with exactly one {run} before the @, e.g. qa+{run}@acme-test.com"
+    if v == "not" and val == {"required": ["allow_account_creation"]}:
+        return "allow_account_creation cannot be used with kind: production"
     if v == "pattern":
         return "has an invalid format"
     if v == "const":
@@ -89,6 +104,8 @@ def message(err):
     if v == "maxLength":
         return f"must be at most {val} characters"
     if v == "minItems":
+        if last == "accounts":
+            return "needs at least one account (or write accounts: not_needed)"
         return f"needs at least {val} item(s)"
     if v == "uniqueItems":
         return "items must be unique"
@@ -104,9 +121,15 @@ def explain(err, base=()):
             groups.setdefault(sub.schema_path[0], []).append(sub)
         # Branches whose "type" check did not fail are the candidates for what the user meant.
         candidates = [g for g in groups.values() if not any(is_discriminator(s) for s in g)]
-        if len(candidates) == 1:
-            for sub in candidates[0]:
+        # Drop branches that only say "wrong kind of value" when another branch fails on the details.
+        pool = [g for g in candidates if not all(is_shallow(s) for s in g)] or candidates
+        if len(pool) == 1:
+            for sub in pool[0]:
                 yield from explain(sub, path)
+            return
+        hint = HINTS.get(str(path[-1]) if path else "")
+        if hint:
+            yield fmt_path(path), hint
             return
         allowed = sorted({x for g in groups.values() for s in g if is_discriminator(s)
                           for x in ([s.validator_value] if s.validator == "const" else s.validator_value)})
@@ -117,7 +140,7 @@ def explain(err, base=()):
         else:
             yield fmt_path(path), "does not match any allowed shape"
         return
-    yield fmt_path(path), message(err)
+    yield fmt_path(path), message(err, path)
 
 
 # --------------------------------------------------------------------------- semantic checks
@@ -138,7 +161,8 @@ def semantic_checks(cfg, root):
         seen_envs.add(env["name"])
 
         usernames, roles = set(), set()
-        for j, acc in enumerate(env.get("accounts", [])):
+        accounts = env["accounts"] if isinstance(env["accounts"], list) else []  # or "not_needed"
+        for j, acc in enumerate(accounts):
             if acc["username"] in usernames:
                 errors.append((f"{ep}.accounts[{j}].username", f"duplicate username '{acc['username']}' in this environment"))
             usernames.add(acc["username"])
