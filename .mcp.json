@@ -1,16 +1,26 @@
 {
-     "mcpServers": {
-       "appium-mcp": {
-         "command": "npx",
-         "args": ["-y", "appium-mcp@1.97.1"]
-       },
-       "playwright": {
-         "command": "npx",
-         "args": ["-y", "@playwright/mcp@0.0.83"]
-       },
-       "xcodebuild": {
-         "command": "npx",
-         "args": ["-y", "xcodebuildmcp@2.6.2", "mcp"]
-       }
-     }
-   }
+  "mcpServers": {
+    "appium-mcp": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/secret_proxy.js",
+        "--allow-tools", "appium_set_value",
+        "--",
+        "npx", "-y", "appium-mcp@1.97.1"
+      ]
+    },
+    "playwright": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/scripts/secret_proxy.js",
+        "--allow-tools", "browser_type,browser_fill_form",
+        "--",
+        "npx", "-y", "@playwright/mcp@0.0.83"
+      ]
+    },
+    "xcodebuild": {
+      "command": "npx",
+      "args": ["-y", "xcodebuildmcp@2.6.2", "mcp"]
+    }
+  }
+}
