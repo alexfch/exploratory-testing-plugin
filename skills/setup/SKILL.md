@@ -10,16 +10,18 @@ Interview the user, write the project's config file, and do not finish until the
 - Config file: `${CLAUDE_PROJECT_DIR}/exploratory-testing/config.yaml`
 - Validator: `python "${CLAUDE_PLUGIN_ROOT}/scripts/validate_config.py" <config>`
 - Secrets: `python "${CLAUDE_PLUGIN_ROOT}/scripts/check_secret.py" {check|template} <config>`
+- Rules check: `python "${CLAUDE_PLUGIN_ROOT}/scripts/check_roe.py" --config <config>`
 
 ## Hard rules
 
 1. **Never ask for a password, token or key in chat, and never write one into any file you create.** The config holds only references (`secret:NAME`). If the user pastes a real secret anyway, tell them not to, do not use or store it, and advise rotating it.
 2. **Never open, read, print or search the secrets file** (`~/exploratory-testing/secrets.env`). Only the two scripts touch it.
-3. **Setup is not complete** until `validate_config.py` prints `OK` and `check_secret.py check` exits 0. Do not tell the user it is done before that.
+3. **Setup is not complete** until `validate_config.py` and `check_roe.py` print `OK` and `check_secret.py check` exits 0. Do not tell the user it is done before that.
 4. **Do not invent config fields, and never edit the validator or the schema** to make a config pass. Fix the config.
 5. **Every environment needs an explicit safety level and an explicit answer about logins, both chosen by the user.** Never default either silently, never write `accounts: not_needed` unless the user said Claude should not log in there, and never write `allow_account_creation` or invent its email address unless the user asked for it and gave you the address.
 6. If you cannot ask the user questions (scheduled or headless run), stop and say setup is needed. Do not guess.
 7. If the session is not inside a project folder, ask which folder is the project root and use `<that folder>/exploratory-testing/config.yaml`.
+8. `exploratory-testing/rules-of-engagement.md` is the user's file. Never edit it. If `check_roe.py` reports an error in it, show the error and let the user decide how to fix it.
 
 ## Step 0: Create or update?
 
@@ -57,6 +59,7 @@ Ask in small batches, one environment at a time. Offer "same as the previous env
   - `test`: data may be freely created, changed and deleted.
   - `prod_like`: realistic or real data. Create or change only data made during a run; no bulk deletes; do not touch existing records.
   - `production`: observe only; no state-changing actions.
+  - The exact rules each kind brings are in `exploratory-testing/rules-of-engagement.md` (created in Step 5). The user can edit that file.
   - Also ask whether destructive actions are allowed (`allow_destructive`). For `production` it is always false.
   - For `test` and `prod_like` only, ask whether Claude may create accounts itself by signing up through the app. If yes, ask for the email address to register with and turn it into a pattern with one `{run}` before the `@`, such as `qa+{run}@acme-test.com`. It must be an address the team controls or a test domain; never propose an address on a domain the user does not control. Write `allow_account_creation: {email_pattern: ...}` under `safety`, and omit the field when the answer is no.
 - Targets (one entry per thing tested), asking only for the types chosen in Step 2:
@@ -79,7 +82,7 @@ Every password, token, key or client secret becomes a reference `secret:NAME`. N
 ## Step 5: Create workspace folder
 
 - Run:
-    mkdir "exploratory-testing"
+    mkdir -p "exploratory-testing"
     cp -Rn "${CLAUDE_SKILL_DIR}/references/workspace-template/." "exploratory-testing/"
   (-n never overwrites existing files, so re-running on an existing project is safe.)
 
@@ -141,6 +144,8 @@ The file contains usernames. Ask whether it should be committed for the team or 
 
 Run the validator. It prints one line per problem, never a secret value. Fix every `ERROR` in the config and run it again until it prints `OK`. If an error needs an answer from the user, ask. A missing `safety` or `accounts` always does: never fill either in yourself. Show `WARN` lines (for example a path that does not exist yet) and let the user decide whether they matter.
 
+Then run `check_roe.py`. It checks that `exploratory-testing/rules-of-engagement.md` has a section for every `safety.kind` the config uses. Show any `ERROR` and `WARN` lines; the file is the user's to fix.
+
 ## Step 8: Secrets
 
 1. Run `check_secret.py template <config>`. It adds an empty `NAME=` line for each secret the config references.
@@ -151,4 +156,4 @@ Run the validator. It prints one line per problem, never a secret value. Fix eve
 
 ## Step 9: Finish
 
-Only when both scripts pass, confirm briefly: the product, each environment with its safety level and targets, and the sources. Say that `/exploratory-testing:setup` changes any of it later.
+Only when all three scripts pass, confirm briefly: the product, each environment with its safety level and targets, and the sources. Tell the user that `exploratory-testing/rules-of-engagement.md` holds the rules for each kind of environment and that they can edit it. Say that `/exploratory-testing:setup` changes any of it later.

@@ -10,6 +10,7 @@ What it does, in order:
   1. config file exists and passes validate_config.py
   2. the chosen environment(s) exist (with several environments you must say which)
   3. every secret the environment needs is set (check_secret.py)
+  3b. rules-of-engagement.md has a section for the environment's safety kind (check_roe.py)
   4. things that look like a setup mistake (environment name versus safety level, a
      "no login needed" site that redirects to a login page)
   5. targets are reachable: web and API URLs, build tools, simulators/emulators/devices
@@ -174,6 +175,25 @@ def check_secrets(config, env_name, secrets_file, report):
                                   f"edit the secrets file, run again")
 
 
+def check_rules(config, env_name, report):
+    code, out = run([sys.executable, str(SCRIPTS / "check_roe.py"), "--config", str(config), "--env", env_name])
+    if code is None or code == 2:
+        report.add("FAIL", "rules of engagement", "could not check rules-of-engagement.md")
+        return
+    lines = out.splitlines()
+    for line in lines:
+        if line.startswith("WARN "):
+            report.add("WARN", "rules of engagement", line[5:])
+    errors = [line[6:] for line in lines if line.startswith("ERROR ")]
+    if errors:
+        for message in errors:
+            report.add("FAIL", "rules of engagement", message)
+        report.add("FAIL", "rules of engagement", "to fix: edit exploratory-testing/rules-of-engagement.md, "
+                                                  "or run /exploratory-testing:setup if the file is missing")
+        return
+    report.add("PASS", "rules of engagement", "rules-of-engagement.md covers this environment")
+
+
 def check_safety_hints(env, report):
     tokens = set(re.split(r"[-_]", env["name"].lower()))
     kind = env["safety"]["kind"]
@@ -292,6 +312,7 @@ def check_environment(env, idx, validator_warns, args, root, report):
     else:
         check_secrets(args.config, env["name"], args.secrets_file, report)
 
+    check_rules(args.config, env["name"], report)
     check_safety_hints(env, report)
 
     wanted = args.targets

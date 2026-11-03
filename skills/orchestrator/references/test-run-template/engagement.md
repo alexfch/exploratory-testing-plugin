@@ -23,10 +23,12 @@
     browsers:
     devices:
     accounts:
-- **Rules of engagement**:
+- **Rules of engagement** (written once by the Orchestrator; nobody else edits it):
+    source:
     allowed:
-    forbidden:
     sandboxed:
+    forbidden:
+    run changes:
 - **Quality criteria weights**:
     High:
     Medium:

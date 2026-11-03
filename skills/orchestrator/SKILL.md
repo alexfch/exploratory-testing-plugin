@@ -111,6 +111,20 @@ In the `<engagement_dir>/engagement.md` file:
 - fill in the “Purpose” field with the testing purpose.
 - fill in the “Test item” section with whatever has been already provded in the user message (if anything). E.g environment name, OS, browsers, devices.
 
+**1.4.1 Resolve the rules of engagement.**
+Do this once per run, after 1.4 and before anything else is spawned. You are the only agent that writes the "Rules of engagement" field of `engagement.md`.
+1. Find the chosen environment in `exploratory-testing/config.yaml`: the one passed to `check_setup.py`, or the only one in the config. If "Test item" → "environment" in `engagement.md` is still empty, write its name there. (Never read the secrets file.)
+2. Read `exploratory-testing/rules-of-engagement.md`. Take the rules that apply: the section named after the environment's `safety.kind` (its Allowed, Sandboxed and Forbidden lists), the Modifiers rules that match the environment's `allow_destructive` (omitted means false) and `allow_account_creation` (set or omitted), and the General section.
+3. Ask for run-specific rules.
+   - **IF `human-in-the-loop`:** ask the user once: "Do you want to add, forbid or allow anything differently for this run? For example areas not to touch, time limits, or load testing allowed this time. Say 'none' to use the default rules."
+   - **IF `agent-only`:** do not ask. Use only what the run request already says, if anything.
+4. Merge. The user's rules add to the defaults or override a default rule. An override replaces the text of the rule it names (by ID, or the closest matching rule if the user described it). Where a user rule contradicts a default, the user rule wins. The file is the user's own and so is the run request: do not refuse a rule because it is looser than the default.
+5. Write the result into the "Rules of engagement" field of `engagement.md`:
+   - `source`: the rules file path and its `rules_version`, the environment name, and the `safety.kind`, `allow_destructive` and `allow_account_creation` values used.
+   - `allowed`, `sandboxed`, `forbidden`: the applicable rules, one per line, each as `R-NN text`. Mark a changed rule `(run override)` and a new one `RUN-1 text (run addition)`.
+   - `run changes`: the user's words, verbatim, or `none`.
+6. In `human-in-the-loop` mode, if the user gave run changes, tell them in a short list how you applied each one.
+
 **1.5 Update state file**
 - Read "Budget" from the `<engagement_dir>/engagement.md` file. Write the Budget value to `state.json` as budget_total. Set budget_spent to 0.
 - Write project_name, workspace_dir, engagement_dir, context_dir, involvement and outcome into `<engagement_dir>/state.json`.

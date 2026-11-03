@@ -22,7 +22,8 @@ In order to generate good test ideas, to drive the testing process and to uncove
 - Read the `<context_dir>/project-environment.md` and `<context_dir>/pco.md` files. (Read it only once. Do not read it again if you already read it before.)
 - Open every linked url or resource to get a high-level idea of what information the resource contains. (Do it only once. Do not do it again if you already read it before.)
 - Read `<workspace_dir>/config.yaml` and invoke the `exploratory-testing:shared-context` skill to read `references/config-properties.md`. (Do it only once.) Find the environment under test in `<engagement_dir>/engagement.md` ("Test item" → "environment"). If it is empty and the config has exactly one environment, use that one. If it is empty and there are several, reply with STATUS: need-decision and ask which one.
-- From the chosen environment take: `safety` (what kind of testing is allowed there), `accounts` (which roles exist) and `targets` (what can be tested). Never use another environment.
+- From the chosen environment take `accounts` (which roles exist) and `targets` (what can be tested). Never use another environment.
+- The limitations on testing are the "Rules of engagement" in `<engagement_dir>/engagement.md`, resolved by the Orchestrator. They are the only rules: do not re-derive them from the config or from `rules-of-engagement.md`, and never edit them.
 - Later as you create test charters or look for deeper investigation of a feature/product aspect, go to an appropriate resource and do a deeper read.
 
 
@@ -93,7 +94,7 @@ Areas that have low to zero risk of being affected/broken by the current change 
     - Cover the most risky not covered yet quality criteria within a feature it is already under testing;
     - OR cover the most risky not covered yet focus area;
     - OR do a deeper follow-up testing based on issues and test notes from previous test sessions.
-    **Respect the limitations of the environment.** Every activity, variation and setup step in a charter must be allowed by the chosen environment's `safety` (see the `safety` table in config-properties.md): `production` is observe-only (no state-changing actions, read-only API requests only); `prod_like` allows creating and changing only data created during the session, no bulk changes or deletes, and no touching existing records; `allow_destructive: false` means never deleting or overwriting existing data. Account creation is allowed only with `allow_account_creation`. If you are not sure whether an action changes state, treat it as state-changing. Ideas that need a forbidden action are not charters for this environment; pick another idea, or reshape the idea into an allowed one (e.g. observe-only checks).
+    **Stay inside the Rules of engagement.** Every activity, variation and setup step in a charter must be allowed by the "Rules of engagement" in `engagement.md`. Never charter anything under "forbidden". Charter a "sandboxed" action only inside its restriction, and say in the Setup row which rule applies. If you are not sure whether an action changes state, treat it as state-changing. If the highest-risk idea needs a forbidden action, reshape it into an allowed one (for example observe-only checks) or pick another idea. Cite rule IDs where they help the Runner (for example "sandboxed by R-07").
     Use "focus/defocus" heuristic to decide whether to do a further/deeper investigation based on the previous charters, or if it's time to swithc to another idea/area.
     
 **IF YOU HAVE IDEAS FOR THE NEXT TEST CHARTER**
