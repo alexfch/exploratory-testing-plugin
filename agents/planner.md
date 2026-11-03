@@ -21,23 +21,33 @@ Count your tool calls as you go. You are given a Budget in the delegation messag
 In order to generate good test ideas, to drive the testing process and to uncover as many important issues/bugs/problems as possible within the test engagement, you learn the product (the way it's built: source code, infrastructure, configs, databases; and the way it's supposed to work: any kind of documentation that describe the product), and learn the current environment that the product operates in. To do this:
 - Read the `<context_dir>/project-environment.md` and `<context_dir>/pco.md` files. (Read it only once. Do not read it again if you already read it before.)
 - Open every linked url or resource to get a high-level idea of what information the resource contains. (Do it only once. Do not do it again if you already read it before.)
-- Read `<workspace_dir>/config.yaml` and invoke the `exploratory-testing:shared-context` skill to read `references/config-properties.md`. (Do it only once.) Find the environment under test in `<engagement_dir>/engagement.md` ("Test item" → "environment"). If it is empty and the config has exactly one environment, use that one. If it is empty and there are several, reply with STATUS: need-decision and ask which one.
+- Read `<workspace_dir>/config.yaml` and invoke the `exploratory-testing:shared-context` skill to read `references/config-properties.md`. (Do it only once.) Find the environment under test in `<engagement_dir>/engagement.md` ("Test item" → "environment"). If it is empty, use the environment named on the `source` line of "Rules of engagement" in the same file. If that is empty too and the config has exactly one environment, use that one. If there are several: **IF `human-in-the-loop`**, reply with STATUS: need-decision and ask which one. **IF `agent-only`**, do not ask: make your best guess (prefer an environment with `safety.kind: test`, then `prod_like`; take `production` only if it is the only one; among equals take the first in the config) and write it into "Test item" → "environment" as `<name> [ASSUMED]`.
 - From the chosen environment take `accounts` (which roles exist) and `targets` (what can be tested). Never use another environment.
 - The limitations on testing are the "Rules of engagement" in `<engagement_dir>/engagement.md`, resolved by the Orchestrator. They are the only rules: do not re-derive them from the config or from `rules-of-engagement.md`, and never edit them.
 - Later as you create test charters or look for deeper investigation of a feature/product aspect, go to an appropriate resource and do a deeper read.
 
 
 ## Phase 2: Define scope
-Read the `<engagement_dir>/engagement.md` file. If "Change", "Impact Radius", "Test item" fields already have values skip this phase and jump to the next one.
+Read the `<engagement_dir>/engagement.md` file. Phase 2 fills in "Change" and "Impact radius" (direct, indirect/regression, unknowns). Fill only the ones that are empty, and never overwrite a value that is already there (for example one the user gave). If both "Change" and "Impact radius" are already filled, skip to Phase 3. "Test item" does not decide whether to skip: it is a group of sub-fields filled by different writers (see 2.2).
 
 ### 2.1 Define the change and its impact radius
-Using the context collected in Phase 1, describe:
-- **The change itself**: what was added, modified or removed (code, config, data model, dependencies, UI, docs).
-- **Direct impact**: areas that execute or expose the changed parts (features, modules, user roles, permissions).
-- **Indirect impact**: areas that share code, data, state or infrastructure with the change, integrations and consumers of changed interfaces, and previously working behavior at risk of regression.
+Using the context collected in Phase 1, fill in the empty fields:
+- **The change itself**:
+  - If "Change" has a value, the user specified a change (a pull request, commit, branch, epic, story, release, a list of tickets...). Keep it as written.
+  - If "Change" is empty, the user did not specify one. Do not guess one from the commit history, trackers or the PCO. Write: "No specific change specified: testing the current feature or product as it is."
+- **Direct impact**:
+  - With a change: areas that execute or expose the changed parts (features, modules, user roles, permissions).
+  - As is: the feature or product areas under test, which are the ones the Purpose and "Test item" name, or the whole product (per the PCO) when none is named.
+- **Indirect impact**:
+  - With a change: areas that share code, data, state or infrastructure with the change, integrations and consumers of changed interfaces, and previously working behavior at risk of regression.
+  - As is: areas that share data, state or infrastructure with the directly tested areas, plus their integrations and third-party dependencies.
+- **Unknowns**: anything you could not determine.
+
+When no change was specified, read "the change(s) under test" in the later phases as "the feature or product as it is". Weight quality criteria and focus areas by their own risk (complexity, consequence of failure, history, usage), and do not use "new or changed" as a risk signal.
 
 ### 2.2 Add the data to the "Engagement details"
-- In the `<engagement_dir>/engagement.md` file, update "Change", "Impact Radius", "Test item" fields.
+- In the `<engagement_dir>/engagement.md` file, fill in the empty "Change" and "Impact radius" fields.
+- In "Test item", fill in only the empty sub-fields you can determine from the context (build, configs, feature flags, data, OS, browsers, devices, accounts). Do not overwrite `environment` or anything the user or the Orchestrator already wrote.
 
 
 ## Phase 3: Prioritize

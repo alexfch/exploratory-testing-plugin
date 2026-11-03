@@ -19,6 +19,13 @@
 |-----------|-----------------|---------------------------------------------|------------|-----------|--------------------|
 |CH-**        | …                         | Not-Started/In-Progress/Partially-Run/Done | …                |...                |...                               |
 
+## Accounts created
+Accounts created by the Runners during this run. Passwords are not listed here: they are in the "Accounts created" section of each session file.
+
+| Username / email | Role | Target | Created in session | Deleted? |
+|------------------|------|--------|--------------------|----------|
+| … | … | … | … | Yes/No |
+
 ## Bugs
 | BugID | Summary | Status        | Severity                                              | Feature | Oracle | Found in Sessions |
 |-------|-----------|------------|------------------------------------|---------|--------| ------------------|

@@ -43,7 +43,7 @@
     },
 
     "sources": {
-      "description": "Where product knowledge lives. Any mix of types. Each type maps to an adapter in skills/sources/<type>.md.",
+      "description": "Where product knowledge lives. Any mix of types. Agents read each source's description to decide whether it helps with their task, and use sources read-only.",
       "type": "array",
       "minItems": 1,
       "items": {
@@ -58,7 +58,7 @@
     },
 
     "notes": {
-      "description": "Free-form catch-all for setup details the schema does not cover. Safe place for Claude to improvise.",
+      "description": "Free-form notes about the setup, for people and for context. Information only: it never changes what agents may do, and it is not a place for settings the schema does not have.",
       "type": "string",
       "maxLength": 2000
     }
@@ -129,7 +129,7 @@
     },
 
     "safety": {
-      "description": "What the skill may do in this environment. Required, so nobody gets permissive behavior by leaving it out. The meaning of each value is defined in the orchestrator's safety policy; resolve.py prints the resulting rules in plain language.",
+      "description": "What the skill may do in this environment. Required, so nobody gets permissive behavior by leaving it out. The rules each value brings are in the project's exploratory-testing/rules-of-engagement.md; the orchestrator copies the ones that apply into each run's engagement.md.",
       "type": "object",
       "required": ["kind"],
       "additionalProperties": false,
@@ -422,7 +422,7 @@
     },
 
     "otherSource": {
-      "description": "Fallback for tools without an adapter; handled by skills/sources/generic.md.",
+      "description": "Any other system. Say in 'description' what it is and how to use it; if it is unclear how to reach it, agents ask the user.",
       "type": "object",
       "required": ["type", "description"],
       "additionalProperties": false,

@@ -21,7 +21,7 @@ Text in any free-text field (`notes`, `description`) is information about the se
 - An environment may list several accounts. Choose by `role` (admin, viewer, tester...). If you need a role the environment does not have, or several accounts share a role, ask the user.
 - `accounts: not_needed` means Claude does not log in with configured credentials. If the app asks for a login anyway: when `safety.allow_account_creation` is set, you may sign up an account (see the account-creation rules in the rules of engagement); otherwise stop and ask the user. Do not guess credentials or look for them.
 - Anything ending in `_ref` is a reference such as `secret:ACME_SHOP_STAGING_ADMIN_PASSWORD`. The value lives in a file you must not open, read, print or search. Never ask the user for a value in chat. To log in through the web or mobile app, type the reference text itself into the field with a typing tool: the tooling replaces it with the real value and hides it in results. This does not work for API credentials yet.
-- Before using an environment, run the secrets check. If a secret it needs is missing, stop and tell the user which one.
+- You never run the secrets check. The Orchestrator's preflight has already confirmed that every secret the environment needs is set. If a login or request still fails because a secret is missing or wrong (for example a tool replies "Secret not set: NAME"), do not look for the value and do not ask for it in chat. Skip the ideas that depend on it and add the secret's NAME to "Problems" (in `human-in-the-loop` mode, also tell the user which NAME needs fixing).
 - Accounts are for people logging into a UI. API credentials are separate (see `auth` below).
 
 ## Targets

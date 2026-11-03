@@ -7,10 +7,12 @@ description: Create or update the exploratory testing plugin's configuration for
 
 Interview the user, write the project's config file, and do not finish until the config validates and every secret it references is set.
 
+**Path check, before anything else.** Claude Code fills in this skill's paths with real absolute paths when it loads the skill. If you can still read the words CLAUDE_PROJECT_DIR, CLAUDE_PLUGIN_ROOT or CLAUDE_SKILL_DIR inside a path or command anywhere in this skill (other than in this paragraph), the filling-in did not happen. Stop. Do not run any command and do not guess a path. Tell the user: "The plugin's paths were not resolved, so I can't continue safely. Please reload the plugin or start a new session."
+
 - Config file: `${CLAUDE_PROJECT_DIR}/exploratory-testing/config.yaml`
-- Validator: `python "${CLAUDE_PLUGIN_ROOT}/scripts/validate_config.py" <config>`
-- Secrets: `python "${CLAUDE_PLUGIN_ROOT}/scripts/check_secret.py" {check|template} <config>`
-- Rules check: `python "${CLAUDE_PLUGIN_ROOT}/scripts/check_roe.py" --config <config>`
+- Validator: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/validate_config.py" <config>`
+- Secrets: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_secret.py" {check|template} <config>`
+- Rules check: `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_roe.py" --config <config>`
 
 ## Hard rules
 
@@ -68,7 +70,7 @@ Ask in small batches, one environment at a time. Offer "same as the previous env
   - **api:** `base_url`, optional `protocol` (rest default, graphql, grpc, soap), optional `spec` (file path or https URL), optional `description`. Auth: none, bearer, api_key, basic, or oauth2_client_credentials. These are service credentials, separate from user logins.
 - Accounts, always asked. If Claude should not log in there, write `accounts: not_needed` (the user's answer, never your guess). Otherwise list each account with its `username` and a `role` (admin, viewer, tester...); roles let later steps choose the right account.
 
-**Sources**, one per place chosen in Step 3, each with a short free-text `description` saying what it holds and how to use it (for example "Epics are features; NFRs are tagged nfr"). Draft the description from what you found and let the user edit it.
+**Sources**, one per place chosen in Step 2 (question 4), each with a short free-text `description` saying what it holds and how to use it (for example "Epics are features; NFRs are tagged nfr"). Draft the description from what you found and let the user edit it.
 - Jira: `project` key (capitals), optional `site`, optional `jql`. Confluence: `space`, optional `site`. File: `path` relative to the project root. Web page: `url`. Anything else: `type: other` with a `description`.
 
 ## Step 4: Secret names
@@ -82,14 +84,15 @@ Every password, token, key or client secret becomes a reference `secret:NAME`. N
 ## Step 5: Create workspace folder
 
 - Run:
-    mkdir -p "exploratory-testing"
-    cp -Rn "${CLAUDE_SKILL_DIR}/references/workspace-template/." "exploratory-testing/"
+    mkdir -p "${CLAUDE_PROJECT_DIR}/exploratory-testing"
+    cp -Rn "${CLAUDE_SKILL_DIR}/references/workspace-template/." "${CLAUDE_PROJECT_DIR}/exploratory-testing/"
+  (If the user named another project root under hard rule 7, use that folder in place of the project folder path at the start of both commands.)
   (-n never overwrites existing files, so re-running on an existing project is safe.)
 
 
 ## Step 6: Write the config
 
-Write `config.yaml` with `schema_version: 1`. Save it to the `exploratory-testing` folder. Use only the shapes below.
+Write `config.yaml` with `schema_version: 1`. Save it as `config.yaml` in the `exploratory-testing` folder you created in Step 5, under the project root. Use only the shapes below.
 
 ```yaml
 schema_version: 1
@@ -145,6 +148,8 @@ The file contains usernames. Ask whether it should be committed for the team or 
 Run the validator. It prints one line per problem, never a secret value. Fix every `ERROR` in the config and run it again until it prints `OK`. If an error needs an answer from the user, ask. A missing `safety` or `accounts` always does: never fill either in yourself. Show `WARN` lines (for example a path that does not exist yet) and let the user decide whether they matter.
 
 Then run `check_roe.py`. It checks that `exploratory-testing/rules-of-engagement.md` has a section for every `safety.kind` the config uses. Show any `ERROR` and `WARN` lines; the file is the user's to fix.
+
+If any of these scripts cannot start (for example "command not found", or a missing-package message), tell the user that Python 3 (available as `python3`) and the `pyyaml` and `jsonschema` packages are required, and stop. Do not tell them setup is done.
 
 ## Step 8: Secrets
 

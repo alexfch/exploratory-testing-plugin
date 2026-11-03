@@ -9,6 +9,8 @@ Runs a full exploratory testing engagement — from collecting context through s
 
 ---
 
+**Path check, before anything else.** Claude Code fills in this skill's paths with real absolute paths when it loads the skill. If you can still read the words CLAUDE_PROJECT_DIR, CLAUDE_PLUGIN_ROOT or CLAUDE_SKILL_DIR inside a path or command anywhere in this skill (other than in this paragraph), the filling-in did not happen. Stop. Do not run any command and do not guess a path. Tell the user: "The plugin's paths were not resolved, so I can't continue safely. Please reload the plugin or start a new session."
+
 ## State values (state.json)
 - phase: context | plan | execute | report
 - status: not-started | in-progress | need-decision | session-out-of-budget | session-done | run-done
@@ -16,7 +18,7 @@ Runs a full exploratory testing engagement — from collecting context through s
 - budget_total, budget_spent: integers (tool calls)
 
 **Write-ahead rule:** Update `state.json` BEFORE every spawn, resume or phase change, never after.
-- Before spawning/resuming: set "status": "in-progress" and "active_agent": "<agent name>".
+- Before spawning/resuming: set "status": "in-progress" and "active_agent": "<agent name>". The order for every agent turn is: Budget gate, then this rule, then spawn or resume. Never mark an agent as started after the fact.
 - When an agent returns need-decision: set "status": "need-decision" and copy its QUESTION into "pending_question" before asking the user.
 - When the user answers: clear "pending_question".
 
@@ -27,38 +29,38 @@ Run this first on every invocation, AND any time you notice you no longer know <
 **0.1 Find unfinished runs.**
 Run:
     for f in "${CLAUDE_PROJECT_DIR}"/exploratory-testing/execution/test-run-*/state.json; do
-      [ -f "$f" ] && python3 -c "import json,sys;s=json.load(open(sys.argv[1]));print(sys.argv[1], s['phase'], s['status'], s['round']) if s['phase']!='done' else None" "$f"
+      [ -f "$f" ] && python3 -c "import json,sys;s=json.load(open(sys.argv[1]));print(sys.argv[1], s['phase'], s['status'], s['round']) if s['status']!='run-done' else None" "$f"
     done | sort
-(Folder names contain sortable timestamps, so the last line per project is the latest run.)
+(Folder names contain sortable timestamps, so the last line is the latest run.)
 
 **0.2 Decide.**
 - No unfinished runs → go to Phase 1 (new run).
 - The user explicitly asked for a new run → go to Phase 1. Leave old runs untouched.
 - Unfinished runs exist:
-  - IF `human-in-the-loop`: show the user the project, start time, phase and round of each, and ask: resume one, or start a new run?
-  - IF `agent-only`: resume the latest unfinished run for the project the user named. If no project was named and there is exactly one unfinished run, resume it. Otherwise ask.
+  - IF `human-in-the-loop`: show the user each unfinished run (start time from the folder name, environment from its `engagement.md` "Test item" if filled, phase, status and round), and ask: resume one, or start a new run?
+  - IF `agent-only`: resume the latest unfinished run. If the user named an environment, resume the latest unfinished run on that environment; if there is none, start a new run (Phase 1).
 
 **0.3 Restore.**
 Read the chosen state.json. Restore <engagement_dir> the involvement and outcome modes, and round from it. Do not re-run Phase 1. Do not create a new test-run folder.
 
 **0.4 Recover the interrupted turn.**
 Agents from before the restart cannot be resumed. If status is in-progress or need-decision:
-- Charge the full agent Budget (60) to budget_spent; its TOOL_CALLS_USED is lost.
+- Charge the full Budget you gave that agent to budget_spent (60 for the Context-collector, 500 for the Planner and the Session-runner); its TOOL_CALLS_USED is lost.
 - Then repair the state by phase:
 
 | phase | Check on disk | Set state to | Then |
 |---|---|---|---|
 | context | — | context / not-started | Re-run Phase 2 (the context-collector updates existing docs) |
-| plan | `sessions/TC-<NN>.md` exists AND its Test Charter section is filled | execute / not-started | Continue Phase 3 |
+| plan | `sessions/TC-<Round>.md` exists AND its Test Charter section is filled | execute / not-started | Continue Phase 3 |
 | plan | file missing or charter empty | plan / not-started | Continue Phase 3 (spawns a fresh Planner) |
-| execute | — | execute / not-started | Continue Phase 3 (spawns a fresh Runner on the same TC-<Round>) |
+| execute | — | execute / not-started | Continue Phase 3 (spawns a fresh Runner on the same `TC-<Round>.md`) |
 | report | — | report / not-started | Go to Phase 4 |
 
 - If pending_question is not empty: ask the user that question again, and include their answer in the fresh agent's delegation prompt as:
       Earlier question: <pending_question>
       User answer: <answer>
 
-**0.5** Tell the user in one line: "Resuming <project> run <timestamp> at <phase>, round <Round>. Budget <spent>/<total>." Then continue with the normal loop.
+**0.5** Tell the user in one line: "Resuming run <timestamp> (<environment, if known>) at <phase>, round <Round>. Budget <spent>/<total>." Then continue with the normal loop.
 
 
 ## Phase 1: Preparation
@@ -67,7 +69,7 @@ Agents from before the restart cannot be resumed. If status is in-progress or ne
 Do not collect context, plan, or start any session until this passes.
 
 1.0.1. Run exactly one command:
-   `python "${CLAUDE_PLUGIN_ROOT}/scripts/check_setup.py" --config "${CLAUDE_PROJECT_DIR}/exploratory-testing/config.yaml" [--env NAME] [--targets web,api,ios,android]`
+   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/check_setup.py" --config "${CLAUDE_PROJECT_DIR}/exploratory-testing/config.yaml" [--env NAME] [--targets web,api,ios,android]`
    - Add `--env NAME` if the user named an environment.
    - Add `--targets` with only the target types this run will test, if the request says. Otherwise omit it.
 1.0.2. Act on the exit code:
@@ -75,14 +77,18 @@ Do not collect context, plan, or start any session until this passes.
    - **1**: stop. Show only the `FAIL` lines. If the config is missing or invalid, or `safety` or `accounts` is missing, send the user to `/exploratory-testing:setup`. Unset secrets: they edit the secrets file themselves. An unreachable URL or missing tool: they fix the environment. Do not start testing and do not offer to skip a `FAIL`.
    - **2**: the script could not run (usually missing Python packages). Tell the user and stop.
    - **3**: several environments and none chosen. Ask which one (AskUserQuestion, using the names the script printed), then run again with `--env`. If you cannot ask, stop and say a choice is needed.
+   - **Any other code** (for example 127, "command not found", or a crash with a traceback): the check did not run. Stop. Show the user the last lines of the output. If the command was not found, tell them Python 3 is required and must be available as `python3`. Do not start testing and do not repeat the checks yourself.
 1.0.3. Do not repeat these checks yourself, and never open the secrets file.
 
 **1.1 Create the test run.**
 - Run:
     ts=$(date +%Y-%m-%dT%H-%M-%S)
-    cp -R "${CLAUDE_SKILL_DIR}/references/test-run-template" "exploratory-testing/execution/test-run-$ts"
-    cp "${CLAUDE_SKILL_DIR}/references/session-template.md" "exploratory-testing/execution/test-run-$ts/session-template.md"
-- <engagement_dir> = ${CLAUDE_PROJECT_DIR}/exploratory-testing/execution/test-run-$ts (absolute).
+    cp -R "${CLAUDE_SKILL_DIR}/references/test-run-template" "${CLAUDE_PROJECT_DIR}/exploratory-testing/execution/test-run-$ts"
+    cp "${CLAUDE_SKILL_DIR}/references/session-template.md" "${CLAUDE_PROJECT_DIR}/exploratory-testing/execution/test-run-$ts/session-template.md"
+- <workspace_dir> = ${CLAUDE_PROJECT_DIR}/exploratory-testing (absolute).
+- <context_dir> = <workspace_dir>/context (absolute).
+- <engagement_dir> = <workspace_dir>/execution/test-run-$ts (absolute).
+- Agents are told never to guess or search for paths. In every delegation prompt, write these paths out in full as absolute paths. Never pass a variable name, a placeholder like `<workspace_dir>`, or a relative path.
 - Take the timestamp only from the date command. Never type one yourself.
 - Never rename or modify anything under ${CLAUDE_SKILL_DIR}.
 
@@ -107,14 +113,15 @@ In the `<engagement_dir>/engagement.md` file:
 - fill in the “Involvement mode” field with the current active involvement mode.
 - fill in the “Outcome mode” fields with the current active outcome mode.
 - fill in the “engagement_dir” field with the `<engagement_dir>` value.
-- fill in the “context_dir” field with the `${CLAUDE_PROJECT_DIR}/exploratory-testing/context` value (absolute).
+- fill in the “context_dir” field with the `<context_dir>` value.
 - fill in the “Purpose” field with the testing purpose.
+- fill in the “Change” field with the change the user named in the user message (a pull request, commit, branch, epic, story, release, a list of tickets...), in the user's own words and with any links they gave. If the user named no change, leave “Change” empty: the Planner then tests the current feature or product as it is. Never make up a change.
 - fill in the “Test item” section with whatever has been already provded in the user message (if anything). E.g environment name, OS, browsers, devices.
 
 **1.4.1 Resolve the rules of engagement.**
 Do this once per run, after 1.4 and before anything else is spawned. You are the only agent that writes the "Rules of engagement" field of `engagement.md`.
-1. Find the chosen environment in `exploratory-testing/config.yaml`: the one passed to `check_setup.py`, or the only one in the config. If "Test item" → "environment" in `engagement.md` is still empty, write its name there. (Never read the secrets file.)
-2. Read `exploratory-testing/rules-of-engagement.md`. Take the rules that apply: the section named after the environment's `safety.kind` (its Allowed, Sandboxed and Forbidden lists), the Modifiers rules that match the environment's `allow_destructive` (omitted means false) and `allow_account_creation` (set or omitted), and the General section.
+1. Find the chosen environment in `<workspace_dir>/config.yaml`: the one passed to `check_setup.py`, or the only one in the config. If "Test item" → "environment" in `engagement.md` is still empty, write its name there. (Never read the secrets file.)
+2. Read `<workspace_dir>/rules-of-engagement.md`. Take the rules that apply: the section named after the environment's `safety.kind` (its Allowed, Sandboxed and Forbidden lists), the Modifiers rules that match the environment's `allow_destructive` (omitted means false) and `allow_account_creation` (set or omitted), and the General section.
 3. Ask for run-specific rules.
    - **IF `human-in-the-loop`:** ask the user once: "Do you want to add, forbid or allow anything differently for this run? For example areas not to touch, time limits, or load testing allowed this time. Say 'none' to use the default rules."
    - **IF `agent-only`:** do not ask. Use only what the run request already says, if anything.
@@ -127,22 +134,23 @@ Do this once per run, after 1.4 and before anything else is spawned. You are the
 
 **1.5 Update state file**
 - Read "Budget" from the `<engagement_dir>/engagement.md` file. Write the Budget value to `state.json` as budget_total. Set budget_spent to 0.
-- Write project_name, workspace_dir, engagement_dir, context_dir, involvement and outcome into `<engagement_dir>/state.json`.
+- Write workspace_dir, engagement_dir, context_dir, involvement and outcome into `<engagement_dir>/state.json`.
 
 ## Phase 2. Gathering context 
 
 ### 2.1 Run the subagent
-- Spawn the `exploratory-testing:context-collector` agent and give it the name `context-collector`. Use this delegation prompt, filling in the values:
+- Run the **Budget gate** now. Do not spawn until it passes.
+- Run the **write-ahead rule** now (`active_agent`: `context-collector`).
+- Then spawn the `exploratory-testing:context-collector` agent and give it the name `context-collector`. Use this delegation prompt, filling in the values:
 
 ```
-  Workspace: exploratory-testing
-  Context dir: exploratory-testing/context 
+  Workspace dir: <workspace_dir>
+  Context dir: <context_dir>
   Modes: involvement=<involvement>
   Budget: 60 tool calls
-  Read exploratory-testing/WORKSPACE.md first, then follow your instructions to collect the project context.
+  Read <workspace_dir>/WORKSPACE.md first, then follow your instructions to collect the project context.
 ```
 
-- Run the **write-ahead rule** now.
 - Do not move to the next phase until the Context-collector finishes it's work and gets back to you with status `session-done`.
 - If the Context-collector finishes with `session-out-of-budget` status, stop execution and let the user know that there was not enough budget to collect full context.
 
@@ -165,48 +173,46 @@ Do this once per run, after 1.4 and before anything else is spawned. You are the
 Repeat until `state.json` has `"phase": "report"`  `"status": "not-started"`:
 
 ### 3.1. Read the loop state
-Read `<engagement_dir>/state.json`. Note `round`, `phase`, `status`. Do not read any other workspace files.
+Read `<engagement_dir>/state.json`. Note `round`, `phase`, `status`. Do not read any other workspace file unless it is really necessary. The only case in this loop: if `budget_total` in `state.json` is 0 or missing (for example the run was interrupted during Phase 1), read "Budget" from `<engagement_dir>/engagement.md` and write it to `state.json` as `budget_total` (see the Budget gate). Never read workspace files while an agent is running.
 
 ### 3.2. Dispatch based on phase and status (from the `state.json`)
 
 **If phase is `plan` and status is `not-started`:**
 - Run the Budget gate now. Do not spawn or resume until it passes.
-- First round: spawn the `exploratory-testing:planner` agent and give it the name `planner`.
+- Run the **write-ahead rule** now (`active_agent`: `planner`).
+- Then start the Planner. First round: spawn the `exploratory-testing:planner` agent and give it the name `planner`.
 - Later rounds: resume the existing Planner by sending a message to `planner` instead of spawning a new one. **If resuming fails** (for example, the session was restarted and `planner` is not available), spawn a new `exploratory-testing:planner` as in the first round.
-- Run the **write-ahead rule** now.
 - Use this delegation prompt, filling in the values:
 
 ```
-  Workspace: exploratory-testing
+  Workspace dir: <workspace_dir>
   Engagement dir: <engagement_dir>
-  Context dir: exploratory-testing/context
+  Context dir: <context_dir>
   Round: <Round>
   Session file: <engagement_dir>/sessions/TC-<Round>.md.
   Modes: involvement=<involvement>, outcome=<outcome>
   Budget: 500 tool calls
-  Read exploratory-testing/WORKSPACE.md first, then follow your instructions to create a new test charter.
+  Read <workspace_dir>/WORKSPACE.md first, then follow your instructions to create a new test charter.
 ```
 
-- As the Planner is started, edit the `state.json` and set `"status": "in-progress"`.
 
 **If phase is `execute` and status is `not-started`:**
 - Run the Budget gate now. Do not spawn or resume until it passes.
-- Spawn the `exploratory-testing:session-runner` agent and give it the name `session-runner-<Round>` (so each round's Runner has a unique name). Spawn a new Runner for each round.
-- Run the **write-ahead rule** now.
+- Run the **write-ahead rule** now (`active_agent`: `session-runner-<Round>`).
+- Then spawn the `exploratory-testing:session-runner` agent and give it the name `session-runner-<Round>` (so each round's Runner has a unique name). Spawn a new Runner for each round.
 - Use this delegation prompt:
 
 ```
-  Workspace: exploratory-testing
+  Workspace dir: <workspace_dir>
   Engagement dir: <engagement_dir>
-  Context dir: exploratory-testing/context
+  Context dir: <context_dir>
   Round: <Round>
   Session file: <engagement_dir>/sessions/TC-<Round>.md.
   Modes: involvement=<involvement>, outcome=<outcome>
   Budget: 500 tool calls
-  Read exploratory-testing/WORKSPACE.md first, then follow your instructions to execute the charter in the Session file.
+  Read <workspace_dir>/WORKSPACE.md first, then follow your instructions to execute the charter in the Session file.
 ```
 
-- As the Runner is started, edit the `state.json` and set `"status": "in-progress"`.
 
 ### 3.3 Help agents to get answers from the user
 When an agent's response contains status `need-decision`:
@@ -222,8 +228,6 @@ When an agent's response contains status `need-decision`:
 ```
 User answer: <put the user's answer here>
 ```
-
-As the current agent is resumed, edit the `state.json` and set `"status": "in-progress"`.
 
 ### 3.4. Wait for the agent to finish
 Wait for the agent's completion notification before doing anything else.
@@ -245,8 +249,8 @@ Continue the loop.
 ## Budget gate
 Run this before every spawn or resume of any agent.
 
-1. remaining = budget_total - budget_spent (from state.json and engagement.md).
-2. Minimum needed: 60 for context-collector, planner or session-runner.
+1. remaining = budget_total - budget_spent, both from `state.json`. If `budget_total` is 0 or missing, read "Budget" from `<engagement_dir>/engagement.md` first and write it to `state.json` as `budget_total`. That is the only time the gate reads `engagement.md`.
+2. Minimum needed: the Budget you are about to give that agent (60 for the Context-collector, 500 for the Planner or the Session-runner).
 3. If remaining is below the minimum: do NOT spawn or resume. Set state.json phase=report, status=not-started. Tell the user "Budget exhausted: <spent>/<total> tool calls used." Continue with Phase 4 (Report).
 
 ## Budget accounting

@@ -56,7 +56,7 @@ Agents read this file and never edit it. Updating the plugin does not update thi
 - R-11 Log in with a configured account.
 
 ### Sandboxed
-- R-12 Anything not listed in this section: ask the user first. If you cannot ask, skip it and log it as a problem.
+- R-12 Anything not listed in this section: in `human-in-the-loop` mode, ask the user first. In `agent-only` mode, make your best guess about whether it is safe (read-only, no side effects, no load), do it only if it is, and record the decision in the test notes with the tag [ASSUMED].
 
 ### Forbidden
 - R-13 Any state-changing action.
@@ -73,7 +73,7 @@ These apply on top of the kind, according to the environment's settings in `conf
 - R-19 `allow_destructive` false or omitted: never delete, overwrite or reset existing data, whatever the kind says. You may clean up data you created during this run.
 - R-20 `allow_destructive: true`: deleting existing data is allowed only where the kind lets you touch existing data (`test`). In `prod_like` and `production`, existing data stays untouched either way.
 - R-21 `allow_account_creation` omitted: do not create accounts.
-- R-22 `allow_account_creation` set (never for `production`): sign up accounts through the app only with the configured `email_pattern`, replacing `{run}` with an id unique to this run. Generate a throwaway password for each account and never put it in the secrets file. Stop and ask the user for verification, captcha or approval steps you cannot pass yourself. List every account you created in the report. You may delete accounts you created, even with `allow_destructive: false`.
+- R-22 `allow_account_creation` set (never for `production`): you may create accounts, but only by signing up through the app with the configured `email_pattern`. Replace `{run}` with `<run id>-<Round>-<n>`: the run id is the part of the engagement folder name after `test-run-`, Round is the round of your session, and n counts the accounts you create in this session, starting at 1. Before creating an account, look for one that an earlier session of this run created with the role you need, and reuse it. Generate a new throwaway password for each account (never reuse a password from the secrets file or from another account), and write the account with its password in the "Accounts created" section of your session file as soon as you create it, so that later sessions can use it. The password goes nowhere else: not in the secrets file, the test notes, bug reports or chat. Stop and ask the user for verification, captcha or approval steps you cannot pass yourself (in `agent-only` mode, skip the idea and log it as a problem). You may delete accounts you created, even with `allow_destructive: false`.
 
 ## General
 
