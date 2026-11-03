@@ -14,6 +14,7 @@ Commands:
     check    CONFIG   List the secrets the config needs and whether each is set.
     template CONFIG   Add empty NAME= lines for secrets that have no entry yet,
                       so you only have to type the values.
+Both accept --env NAME to look only at the secrets that environment needs.
 
 Neither command ever prints a secret value, and neither asks for input.
 
@@ -131,8 +132,10 @@ def collect_refs(cfg):
     return refs
 
 
-def load_refs(config_path):
-    """Parse the config and return its references, or None after printing why not."""
+def load_refs(config_path, env=None):
+    """Parse the config and return its references, or None after printing why not.
+
+    With env set, only the references inside that environment are returned."""
     try:
         cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except OSError as exc:
@@ -146,13 +149,19 @@ def load_refs(config_path):
     if not isinstance(cfg, dict):
         print(f"Cannot use config {config_path}: expected a mapping of settings", file=sys.stderr)
         return None
+    if env is not None:
+        chosen = [e for e in cfg.get("environments") or [] if isinstance(e, dict) and e.get("name") == env]
+        if not chosen:
+            print(f"No environment named '{env}' in {config_path}", file=sys.stderr)
+            return None
+        cfg = {**cfg, "environments": chosen}
     return collect_refs(cfg)
 
 
 # --------------------------------------------------------------------------- commands
 
 def cmd_check(args):
-    refs = load_refs(args.config)
+    refs = load_refs(args.config, args.env)
     if refs is None:
         return 2
     if not refs:
@@ -174,8 +183,9 @@ def cmd_check(args):
 
     if missing:
         steps = []
+        env_arg = f" --env {args.env}" if args.env else ""
         if any(name not in values for name in missing):
-            steps.append(f'Run: python "{Path(__file__).resolve()}" template "{args.config.resolve()}"'
+            steps.append(f'Run: python "{Path(__file__).resolve()}" template "{args.config.resolve()}"{env_arg}'
                          f"   (adds the empty NAME= lines)")
         steps.append(f"Open {args.secrets_file} in an editor and type each value right after its '=' sign "
                      f"(no quotes).")
@@ -187,7 +197,7 @@ def cmd_check(args):
 
 
 def cmd_template(args):
-    refs = load_refs(args.config)
+    refs = load_refs(args.config, args.env)
     if refs is None:
         return 2
     values, _ = parse_secrets(args.secrets_file)
@@ -217,6 +227,7 @@ def build_parser():
             ("template", cmd_template, "add empty NAME= lines for secrets that have no entry")):
         p = sub.add_parser(name, parents=[common], help=text)
         p.add_argument("config", type=Path)
+        p.add_argument("--env", help="only the secrets this environment needs (default: the whole config)")
         p.set_defaults(func=func)
     return parser
 
