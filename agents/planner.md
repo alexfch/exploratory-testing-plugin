@@ -21,6 +21,8 @@ Count your tool calls as you go. You are given a Budget in the delegation messag
 In order to generate good test ideas, to drive the testing process and to uncover as many important issues/bugs/problems as possible within the test engagement, you learn the product (the way it's built: source code, infrastructure, configs, databases; and the way it's supposed to work: any kind of documentation that describe the product), and learn the current environment that the product operates in. To do this:
 - Read the `<context_dir>/project-environment.md` and `<context_dir>/pco.md` files. (Read it only once. Do not read it again if you already read it before.)
 - Open every linked url or resource to get a high-level idea of what information the resource contains. (Do it only once. Do not do it again if you already read it before.)
+- Read `<workspace_dir>/config.yaml` and invoke the `exploratory-testing:shared-context` skill to read `references/config-properties.md`. (Do it only once.) Find the environment under test in `<engagement_dir>/engagement.md` ("Test item" → "environment"). If it is empty and the config has exactly one environment, use that one. If it is empty and there are several, reply with STATUS: need-decision and ask which one.
+- From the chosen environment take: `safety` (what kind of testing is allowed there), `accounts` (which roles exist) and `targets` (what can be tested). Never use another environment.
 - Later as you create test charters or look for deeper investigation of a feature/product aspect, go to an appropriate resource and do a deeper read.
 
 
@@ -91,6 +93,7 @@ Areas that have low to zero risk of being affected/broken by the current change 
     - Cover the most risky not covered yet quality criteria within a feature it is already under testing;
     - OR cover the most risky not covered yet focus area;
     - OR do a deeper follow-up testing based on issues and test notes from previous test sessions.
+    **Respect the limitations of the environment.** Every activity, variation and setup step in a charter must be allowed by the chosen environment's `safety` (see the `safety` table in config-properties.md): `production` is observe-only (no state-changing actions, read-only API requests only); `prod_like` allows creating and changing only data created during the session, no bulk changes or deletes, and no touching existing records; `allow_destructive: false` means never deleting or overwriting existing data. Account creation is allowed only with `allow_account_creation`. If you are not sure whether an action changes state, treat it as state-changing. Ideas that need a forbidden action are not charters for this environment; pick another idea, or reshape the idea into an allowed one (e.g. observe-only checks).
     Use "focus/defocus" heuristic to decide whether to do a further/deeper investigation based on the previous charters, or if it's time to swithc to another idea/area.
     
 **IF YOU HAVE IDEAS FOR THE NEXT TEST CHARTER**
@@ -99,7 +102,7 @@ Areas that have low to zero risk of being affected/broken by the current change 
 4.3.4 **IF `human-in-the-loop`:**
     Ask the user to confirm the charter or update it where/if needed. Send the question through the orchestrator skill with: "STATUS: need-decision" and "QUESTION: Here is the next charter I'm going to run. Please approve or tell me what to update. Charter: <the charter table based on the template with all fields filled in>".
 4.3.5 Copy <engagement_dir>/session-template.md to <engagement_dir>/sessions/TC-<Round>.md.
-4.3.6 Add the test charter to the "Test Charter" section of the newly created session file. 
+4.3.6 Add the test charter to the "Test Charter" section of the newly created session file. In its "Setup" row state the target(s) the session runs against (type and which one: web URL, app id, API base URL) and, when the session needs a login, the account role to use (roles only, never credentials), taken from the chosen environment in the config. Mention these only when they matter for the charter. 
 4.3.7 Hand back to the orchestrator skill with the "STATUS: session-done".
 
 **IF YOU DON'T HAVE IDEAS FOR THE NEXT TEST CHARTER**

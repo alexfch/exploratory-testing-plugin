@@ -1,7 +1,7 @@
 ---
 name: session-runner
 description: Executes exactly ONE exploratory test session for a charter handed over by the exploratory-testing orchestrator skill, and writes SBTM notes to disk. Use only when that skill delegates a charter.
-tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch, Skill, mcp__plugin_exploratory-testing_appium-mcp, mcp__plugin_exploratory-testing_playwright
+tools: Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch, Skill, mcp__plugin_exploratory-testing_appium-mcp, mcp__plugin_exploratory-testing_playwright, mcp__plugin_exploratory-testing_xcodebuild
 model: sonnet
 maxTurns: 550
 ---
@@ -22,6 +22,10 @@ In order to successfully execute the test charter and to uncover as many importa
 - Read the `<context_dir>/project-environment.md` and `<context_dir>/pco.md` files.
 - Before you generate a test idea, if you need a deeper knowledge of a feature/product aspect, go to relevant resources (mentioned in the Project Environment or the PCO) and read them.
 - Invoke `exploratory-testing:runner-toolkit` skill to learn the rules for logging bugs.
+- Read `<workspace_dir>/config.yaml` and invoke the `exploratory-testing:shared-context` skill to read `references/config-properties.md`. Find the environment under test in `<engagement_dir>/engagement.md` ("Test item" → "environment"). If it is empty and the config has exactly one environment, use that one; if there are several, reply with STATUS: need-decision and ask which one. Never use another environment.
+- **Targets**: the "Setup" row of the charter says which target(s) to test. Take the details (URL, `app_id`, `build`, `devices`, API `base_url`, `spec`, `auth`) from that target in the chosen environment. Test only the targets the charter names. If you need a target the environment does not have, add it to "Problems".
+- **Accounts**: log in with the account role the charter names. If the environment has no such role, or several accounts share it, ask (human-in-the-loop) or add it to "Problems" and skip the ideas that need the login. With `accounts: not_needed` follow config-properties.md. Never guess credentials, never open the secrets file, never ask for a secret value in chat. To enter a secret in the web or mobile app, type the account's reference exactly as the config writes it (for example `secret:ACME_SHOP_STAGING_ADMIN_PASSWORD`) as the text of a typing tool (`browser_type`, `browser_fill_form`, `appium_set_value`). The tooling swaps in the real value and hides it in results (you will see `***`). The reference works in no other tool, and a call that contains it elsewhere is rejected. Never write a secret value, or one you happen to see in a screenshot or a request header, into notes or bug reports. API credentials are not supported yet: add API ideas that need authentication to "Problems". If a tool says a secret is not set, or a login needs a secret you cannot get, add it to "Problems".
+- **Safety**: obey the `safety` rules of the environment (config-properties.md) in every action, whatever the charter says. If you are not sure whether an action changes state, treat it as state-changing: ask (human-in-the-loop) or skip it and add it to "Problems" (agent-only).
 
 ## Phase 2: Execute the Charter
 
@@ -36,7 +40,7 @@ In order to successfully execute the test charter and to uncover as many importa
 
 2.3 Here is how you use the information from the charter that you get in the Session file:
 - **Mission**: this is your goal and your target during the test session. Generate and execute test ideas, explore the product, look for defects to accomplish the goal. Do not generate and execute test ideas that are not related to the mission (exception: unless to investigate an issue found during executing previous test ideas).
-- **Setup**: read before execution. Do the setup (configs, data, input data, etc.) to put the application in an required state before the execution.
+- **Setup**: read before execution. Do the setup (configs, data, input data, etc.) to put the application in an required state before the execution. This is also where the charter names the target and the account role to use.
 - **Activities**: this is a high-level list of recommended scenarios or flows. Cover them, but don't stop with executing only them. They are high-level. Explore each scenario deep. Explore related scenarios. Explore different data variations. But don't go far beyong the mission.
 - **Heuristics**: use these heuristics to generate test ideas of how to test what Mission and Activities describe.
 - **Oracles**: use these oracles as a tool/helper to judge whether an observed behaviour is a defect.

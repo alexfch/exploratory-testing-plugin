@@ -33,7 +33,7 @@ Examples:
 | Headers | Content |
 | ------- | ------- |
 | Mission | *Put the charter mission here, in the format provided above* |
-| Setup | *Describe the setup required for this charter: database, configurations, specific data or items added to the system ahead, etc. The Runner agent will have to do the setup before running the test session* |
+| Setup | *Describe the setup required for this charter: database, configurations, specific data or items added to the system ahead, etc. The Runner agent will have to do the setup before running the test session. When they matter for the charter, also name here the target(s) to test (type and which one, e.g. web at <url>, iOS app <app_id>, API <base_url>) and the account role to log in as (a role from the config, never a username or credential), or say that no login is needed* |
 | Activities | *List all high-level scenarios/workflows/activities describing what to test as a part of this charter. List ideas only, do not get too detailed in particular steps. Let the Runner decide on the steps by itself.* | 
 | Heuristics | *From the table with heiristics pick the ones that can help better execute the mission. Add the name of the heuristic and the description, so that the Runner better understand how to use it* 
 | Oracles | *Out of all oracles you know, list the ones that most fit the charter mission. Add 1-2 sentence comments to each listed oracle explaining what exactly to pay attention to in the context of **this product** and **this test session**.* |

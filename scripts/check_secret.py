@@ -4,7 +4,7 @@
 Secrets are referenced in config.yaml as 'secret:NAME' and kept in one file
 that you edit yourself:
 
-    ~/.exploratory-testing/secrets.env        (override with --secrets-file)
+    ~/exploratory-testing/secrets.env        (override with --secrets-file)
 
 Format: one NAME=value per line. Everything after the first '=' is the value,
 verbatim, so do NOT wrap it in quotes. Blank lines and lines starting with '#'
@@ -33,7 +33,7 @@ except ImportError:
     print("Missing dependency 'pyyaml'. Run: pip install pyyaml", file=sys.stderr)
     sys.exit(2)
 
-DEFAULT_SECRETS_FILE = Path.home() / ".exploratory-testing" / "secrets.env"
+DEFAULT_SECRETS_FILE = Path.home() / "exploratory-testing" / "secrets.env"
 NAME_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 REF_RE = re.compile(r"^secret:([A-Z_][A-Z0-9_]*)$")
 HEADER = ("# Secrets for the exploratory testing plugin. One NAME=value per line.\n"
