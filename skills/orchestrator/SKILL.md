@@ -26,7 +26,7 @@ Run this first on every invocation, AND any time you notice you no longer know <
 
 **0.1 Find unfinished runs.**
 Run:
-    for f in "${WORKSPACE_ROOT:-$HOME/Projects/ai-test-runs}"/*/execution/test-run-*/state.json; do
+    for f in "${CLAUDE_PROJECT_DIR}"/exploratory-testing/execution/test-run-*/state.json; do
       [ -f "$f" ] && python3 -c "import json,sys;s=json.load(open(sys.argv[1]));print(sys.argv[1], s['phase'], s['status'], s['round']) if s['phase']!='done' else None" "$f"
     done | sort
 (Folder names contain sortable timestamps, so the last line per project is the latest run.)
@@ -39,7 +39,7 @@ Run:
   - IF `agent-only`: resume the latest unfinished run for the project the user named. If no project was named and there is exactly one unfinished run, resume it. Otherwise ask.
 
 **0.3 Restore.**
-Read the chosen state.json. Restore <workspace_dir>, <engagement_dir>, <context_dir>, the involvement and outcome modes, and round from it. Do not re-run Phase 1. Do not create a new test-run folder.
+Read the chosen state.json. Restore <engagement_dir> the involvement and outcome modes, and round from it. Do not re-run Phase 1. Do not create a new test-run folder.
 
 **0.4 Recover the interrupted turn.**
 Agents from before the restart cannot be resumed. If status is in-progress or need-decision:
@@ -63,31 +63,35 @@ Agents from before the restart cannot be resumed. If status is in-progress or ne
 
 ## Phase 1: Preparation
 
-**1.1 Learn about the modes.**
+**1.0 Preflight (before anything else in a new run)**
+Do not collect context, plan, or start any session until this passes.
+
+1.0.1. Run exactly one command:
+   `python "${CLAUDE_PLUGIN_ROOT}/scripts/check_setup.py" --config "${CLAUDE_PROJECT_DIR}/exploratory-testing/config.yaml" [--env NAME] [--targets web,api,ios,android]`
+   - Add `--env NAME` if the user named an environment.
+   - Add `--targets` with only the target types this run will test, if the request says. Otherwise omit it.
+1.0.2. Act on the exit code:
+   - **0**: continue. Mention any `WARN` lines in one short list. Do not stop for them.
+   - **1**: stop. Show only the `FAIL` lines. If the config is missing or invalid, or `safety` or `accounts` is missing, send the user to `/exploratory-testing:setup`. Unset secrets: they edit the secrets file themselves. An unreachable URL or missing tool: they fix the environment. Do not start testing and do not offer to skip a `FAIL`.
+   - **2**: the script could not run (usually missing Python packages). Tell the user and stop.
+   - **3**: several environments and none chosen. Ask which one (AskUserQuestion, using the names the script printed), then run again with `--env`. If you cannot ask, stop and say a choice is needed.
+1.0.3. Do not repeat these checks yourself, and never open the secrets file.
+
+**1.1 Create the test run.**
+- Run:
+    ts=$(date +%Y-%m-%dT%H-%M-%S)
+    cp -R "${CLAUDE_SKILL_DIR}/references/test-run-template" "exploratory-testing/execution/test-run-$ts"
+    cp "${CLAUDE_SKILL_DIR}/references/session-template.md" "exploratory-testing/execution/test-run-$ts/session-template.md"
+- <engagement_dir> = ${CLAUDE_PROJECT_DIR}/exploratory-testing/execution/test-run-$ts (absolute).
+- Take the timestamp only from the date command. Never type one yourself.
+- Never rename or modify anything under ${CLAUDE_SKILL_DIR}.
+
+**1.2 Learn about the modes.**
 - Invoke the `exploratory-testing:shared-context` skill. It explains the Involvement and Outcome modes.
 - Take the active modes for the current engagement from the user message. If not provided, use defaults: **Involvement mode - "human-in-the-loop"**, and **Outcome mode - "test-only"**.
 - Hold both modes for the rest of the engagement — they govern context collection, execution, and reporting.
 
-**1.2 Create workspace folder.**
-- Extract the project name from the user message. If it's not provided, ask for it. Call it <project-name>.
-- <skill_dir> is this skill's base directory (the path shown when the skill loads).
-- <workspace_dir> = $HOME/Projects/ai-test-runs/<project-name> (or the user's path), as an absolute path.
-- Run:
-    mkdir -p "<workspace_dir>/execution"
-    cp -Rn "<skill_dir>/references/workspace-template/." "<workspace_dir>/"
-  (-n never overwrites existing files, so re-running on an existing project is safe.)
-- <context_dir> = <workspace_dir>/context
-
-**1.3 Create the test run.**
-- Run:
-    ts=$(date +%Y-%m-%dT%H-%M-%S)
-    cp -R "<skill_dir>/references/test-run-template" "<workspace_dir>/execution/test-run-$ts"
-    cp "<skill_dir>/references/session-template.md" "<workspace_dir>/execution/test-run-$ts/session-template.md"
-- <engagement_dir> = <workspace_dir>/execution/test-run-$ts (absolute).
-- Take the timestamp only from the date command. Never type one yourself.
-- Never rename or modify anything under <skill_dir>.
-
-**1.4 Identify testing purpose.**
+**1.3 Identify testing purpose.**
 - Use "Find important problems in the change and its impact radius" as the default testing purpose.
 
 Follow the branch matching the involvement mode.
@@ -95,19 +99,19 @@ Follow the branch matching the involvement mode.
 - If the user provided a specific testing purpose (other than the default one), take it as the testing goal. Otherwise stick to the default one.
 
 **IF `human-in-the-loop`:**
-- If the user did not provide the testing purpose, ask for it. Give a few generic examples of testing purposes, to help the user to figure out their version.
-- If the user struggles to decide, help him based on what you know about testing purposes in exploratory testing and session based testing.
-- If the user refuses to provide the purpose use the default one.
+- If the user did not provide the testing purpose, ask for it. Give a few relevant ideas based on what you know about testing purposes in exploratory testing, to help the user to figure out their version.
+- If the user struggles to decide, or refuses to provide the purpose use the default one.
 
-**1.5 Pre-fill engagement details.**
+**1.4 Pre-fill engagement details.**
 In the `<engagement_dir>/engagement.md` file:
-- fill in the “engagement_dir” field with the `<engagement_dir>` value.
-- fill in the “context_dir” field with the `<workspace_dir>/context` value.
-- fill in the “Purpose” field with the testing purpose.
 - fill in the “Involvement mode” field with the current active involvement mode.
 - fill in the “Outcome mode” fields with the current active outcome mode.
+- fill in the “engagement_dir” field with the `<engagement_dir>` value.
+- fill in the “context_dir” field with the `${CLAUDE_PROJECT_DIR}/exploratory-testing/context` value (absolute).
+- fill in the “Purpose” field with the testing purpose.
+- fill in the “Test item” section with whatever has been already provded in the user message (if anything). E.g environment name, OS, browsers, devices.
 
-**1.6 Update state file**
+**1.5 Update state file**
 - Read "Budget" from the `<engagement_dir>/engagement.md` file. Write the Budget value to `state.json` as budget_total. Set budget_spent to 0.
 - Write project_name, workspace_dir, engagement_dir, context_dir, involvement and outcome into `<engagement_dir>/state.json`.
 
@@ -117,11 +121,11 @@ In the `<engagement_dir>/engagement.md` file:
 - Spawn the `exploratory-testing:context-collector` agent and give it the name `context-collector`. Use this delegation prompt, filling in the values:
 
 ```
-  Workspace: <workspace_dir>
-  Context dir: <context_dir> 
+  Workspace: exploratory-testing
+  Context dir: exploratory-testing/context 
   Modes: involvement=<involvement>
   Budget: 60 tool calls
-  Read <workspace_dir>/WORKSPACE.md first, then follow your instructions to collect the project context.
+  Read exploratory-testing/WORKSPACE.md first, then follow your instructions to collect the project context.
 ```
 
 - Run the **write-ahead rule** now.
@@ -159,14 +163,14 @@ Read `<engagement_dir>/state.json`. Note `round`, `phase`, `status`. Do not read
 - Use this delegation prompt, filling in the values:
 
 ```
-  Workspace: <workspace_dir>
+  Workspace: exploratory-testing
   Engagement dir: <engagement_dir>
-  Context dir: <context_dir>
+  Context dir: exploratory-testing/context
   Round: <Round>
   Session file: <engagement_dir>/sessions/TC-<Round>.md.
   Modes: involvement=<involvement>, outcome=<outcome>
   Budget: 500 tool calls
-  Read <workspace_dir>/WORKSPACE.md first, then follow your instructions to create a new test charter.
+  Read exploratory-testing/WORKSPACE.md first, then follow your instructions to create a new test charter.
 ```
 
 - As the Planner is started, edit the `state.json` and set `"status": "in-progress"`.
@@ -178,14 +182,14 @@ Read `<engagement_dir>/state.json`. Note `round`, `phase`, `status`. Do not read
 - Use this delegation prompt:
 
 ```
-  Workspace: <workspace_dir>
+  Workspace: exploratory-testing
   Engagement dir: <engagement_dir>
-  Context dir: <context_dir>
+  Context dir: exploratory-testing/context
   Round: <Round>
   Session file: <engagement_dir>/sessions/TC-<Round>.md.
   Modes: involvement=<involvement>, outcome=<outcome>
   Budget: 500 tool calls
-  Read <workspace_dir>/WORKSPACE.md first, then follow your instructions to execute the charter in the Session file.
+  Read exploratory-testing/WORKSPACE.md first, then follow your instructions to execute the charter in the Session file.
 ```
 
 - As the Runner is started, edit the `state.json` and set `"status": "in-progress"`.
