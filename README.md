@@ -21,6 +21,11 @@ Preflight ─▶ Context ─▶ ┌▶ Plan (charter) ─▶ Execute (session) �
                                       Report (TO DO)
 ```
 
+## Architecture
+
+Architecture diagram of the exploratory-testing plugin: the orchestrator skill dispatches the context-collector, planner and session-runner agents (the reporter is a placeholder). The agents read and write workspace files and draw on method skills and the Playwright, Appium and xcodebuild MCP servers. The setup skill and scripts sit below.
+![image](docs/architecture.png)
+
 ## Requirements
 
 - Claude Code with plugin support.
