@@ -36,7 +36,19 @@ Architecture diagram of the exploratory-testing plugin: the orchestrator skill d
 
 ## Installation
 
-Install the plugin through your Claude Code plugin marketplace or by pointing Claude Code at this folder, then reload plugins. The plugin ships three MCP servers (see [.mcp.json](.mcp.json)), pinned to specific versions:
+This plugin is not published to a marketplace yet. To try it locally:
+
+```bash
+git clone git@github.com:alexfch/exploratory-testing-plugin.git
+```
+
+Then, from the project you want to test, start Claude Code pointed at the cloned folder:
+
+```bash
+claude --plugin-dir /path/to/exploratory-testing-plugin
+```
+
+If Claude Code is already running, reload plugins instead of restarting. The plugin ships three MCP servers (see [.mcp.json](.mcp.json)), pinned to specific versions:
 
 | Server | Package | Used for |
 |---|---|---|
