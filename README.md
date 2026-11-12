@@ -9,8 +9,8 @@ A Claude Code plugin that runs a full, multi-agent **exploratory testing engagem
 An engagement is a loop of three kinds of agents, coordinated by an orchestrator skill:
 
 1. **Context collection:** the `context-collector` agent builds two shared documents from your code, docs and tracker: the **Project Environment** and the **Product Coverage Outline (PCO)**.
-2. **Planning:** the `planner` agent writes one **test charter** at a time, based on the context and on what earlier sessions found.
-3. **Execution:** the `session-runner` agent runs exactly one charter using Playwright (web), Appium (Android/iOS) or XcodeBuildMCP (iOS builds), and writes session-based test management (SBTM) notes, bugs and problems.
+2. **Planning:** a fresh `planner` agent per round writes one **test charter**, based on the context and on what earlier sessions found. Continuity between rounds lives in `plan.md` in the run folder (strategy, coverage map, charter history, heuristics yield, idea backlog), not in the agent's memory.
+3. **Execution:** a **session-runner** agent runs exactly one charter, in legs of about 60 tool calls (each leg is a fresh Runner that continues from a handoff file), using Playwright (web), Appium (Android/iOS) or XcodeBuildMCP (iOS builds), and writes session-based test management (SBTM) notes, bugs and problems. There is one Runner per kind of target, chosen from the `Target:` line of the charter's Setup row: `session-runner-mobile`, `session-runner-web`, and `session-runner-mobile-web` (a scenario that needs both a mobile and a web app). Each carries only the tools it needs.
 4. **Repeat** plan → execute until the planner runs out of ideas or the tool-call budget is used up, then report.
 
 ```
@@ -102,8 +102,10 @@ exploratory-testing/
     └── test-run-<timestamp>/
         ├── engagement.md        # purpose, change, impact radius, test item, rules
         ├── state.json           # loop state (orchestrator only)
+        ├── plan.md              # engagement plan and memory of the Planner
         ├── sessions/
-        │   └── TC-<round>.md    # charter, notes, bugs, problems, accounts created
+        │   ├── TC-<round>.md    # charter, notes, bugs, problems, accounts created
+        │   └── TC-<round>.handoff.md  # state passed between the legs of a session
         └── results/
             └── summary-report.md
 ```
@@ -122,9 +124,9 @@ Runs are resumable: if a session is interrupted, the orchestrator finds unfinish
 | `skills/reporter-toolkit` | Reporting references (placeholder) |
 | `agents/context-collector` | Builds the Project Environment and PCO (Sonnet) |
 | `agents/planner` | Writes and updates test charters (Opus) |
-| `agents/session-runner` | Executes one charter (Sonnet) |
+| `agents/session-runner-mobile`, `-web`, `-mobile-web` | Execute one leg of a charter (Sonnet). Generated from `scripts/runner-agent/template.md` by `scripts/build_runner_agents.py`; do not edit by hand |
 | `agents/reporter` | Placeholder |
-| `scripts/` | `check_setup.py`, `validate_config.py`, `check_roe.py`, `check_secret.py`, `secret_proxy.js`, and their tests |
+| `scripts/` | `check_setup.py`, `validate_config.py`, `check_roe.py`, `check_secret.py`, `secret_proxy.js` (secrets, and shrinking of Appium screenshots and page source via `output_filters.js`), `build_runner_agents.py`, `token_report.py`, and their tests |
 | `schemas/` | JSON Schema for `config.yaml` |
 | `.mcp.json` | Playwright, Appium and XcodeBuildMCP servers |
 

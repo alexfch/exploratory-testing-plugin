@@ -15,9 +15,12 @@
  * Going out (server -> Claude), for every message and for the server's stderr:
  *   - Every known secret value is replaced by `***`. Image content is passed through untouched.
  * Everything else is forwarded unchanged.
+ * Optionally (--output-filters), the big results of named tools are shrunk before they reach Claude
+ * (screenshots become a path plus a small preview, page source becomes a compact element list); see output_filters.js.
  *
  * Usage:
- *   node secret_proxy.js --allow-tools browser_type,browser_fill_form [--secrets-file FILE] -- <server command> [args...]
+ *   node secret_proxy.js --allow-tools browser_type,browser_fill_form [--secrets-file FILE]
+ *        [--output-filters tool:filter,...] [--max-image-px 900] -- <server command> [args...]
  *
  * Secrets file: ~/exploratory-testing/secrets.env (same format check_secret.py reads), re-read
  * whenever it changes. Values are never logged. Error messages name the secret, never its value.
@@ -30,6 +33,7 @@ const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const { StringDecoder } = require('string_decoder');
+const { FILTERS, applyFilter } = require('./output_filters');
 
 const REF_RE = /secret:([A-Z_][A-Z0-9_]*)/g;
 const NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
@@ -49,6 +53,8 @@ function parseArgs(argv) {
   const opts = {
     allow: new Set(),
     secretsFile: path.join(os.homedir(), 'exploratory-testing', 'secrets.env'),
+    filters: new Map(),
+    filterOpts: {},
     command,
   };
   for (let i = 0; i < own.length; i += 1) {
@@ -56,6 +62,15 @@ function parseArgs(argv) {
       opts.allow = new Set((own[++i] || '').split(',').map((s) => s.trim()).filter(Boolean));
     } else if (own[i] === '--secrets-file') {
       opts.secretsFile = own[++i];
+    } else if (own[i] === '--output-filters') {
+      // tool:filter pairs, e.g. appium_screenshot:appium-screenshot,appium_get_page_source:appium-page-source
+      for (const pair of (own[++i] || '').split(',').map((s) => s.trim()).filter(Boolean)) {
+        const [tool, filter] = pair.split(':');
+        if (!tool || !FILTERS[filter]) throw new Error(`unknown output filter in "${pair}"; known: ${Object.keys(FILTERS).join(', ')}`);
+        opts.filters.set(tool, filter);
+      }
+    } else if (own[i] === '--max-image-px') {
+      opts.filterOpts.maxImagePx = Number(own[++i]) || 900;
     } else {
       throw new Error(`unknown option ${own[i]}`);
     }
@@ -218,6 +233,9 @@ function main() {
     toClient(JSON.stringify({ jsonrpc: '2.0', id, result: { content: [{ type: 'text', text }], isError: true } }));
   }
 
+  // Calls whose result goes through an output filter, by JSON-RPC id.
+  const filterByRequest = new Map();
+
   function fromClient(line) {
     let message;
     try {
@@ -227,6 +245,9 @@ function main() {
       return;
     }
     const call = message && !Array.isArray(message) && message.method === 'tools/call' ? message.params : null;
+    if (call && opts.filters.has(call.name) && message.id !== undefined && message.id !== null) {
+      filterByRequest.set(String(message.id), opts.filters.get(call.name));
+    }
     if (call && call.arguments !== undefined) {
       const names = findRefs(call.arguments);
       if (names.size > 0) {
@@ -254,12 +275,29 @@ function main() {
 
   function fromServer(line) {
     const { scrub } = store.load();
+    let message = null;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      message = null;
+    }
+    if (message && !Array.isArray(message) && message.id !== undefined && message.id !== null && filterByRequest.has(String(message.id))) {
+      const filter = filterByRequest.get(String(message.id));
+      filterByRequest.delete(String(message.id));
+      if (message.result) {
+        // Scrub secrets first (in the original text), then shrink; images are never scrubbed.
+        const scrubbed = scrub.length > 0 ? scrubDeep(message.result, scrub) : message.result;
+        message = { ...message, result: applyFilter(filter, scrubbed, opts.filterOpts) };
+        toClient(JSON.stringify(message));
+        return;
+      }
+    }
     if (scrub.length === 0) {
       toClient(line);
       return;
     }
     try {
-      toClient(JSON.stringify(scrubDeep(JSON.parse(line), scrub)));
+      toClient(JSON.stringify(scrubDeep(message || JSON.parse(line), scrub)));
     } catch {
       toClient(scrubString(line, scrub));
     }

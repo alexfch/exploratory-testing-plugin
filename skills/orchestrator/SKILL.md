@@ -13,9 +13,13 @@ Runs a full exploratory testing engagement — from collecting context through s
 
 ## State values (state.json)
 - phase: context | plan | execute | report
-- status: not-started | in-progress | need-decision | session-out-of-budget | session-done | run-done
+- status: not-started | in-progress | need-decision | session-out-of-budget | session-done | run-done (`leg-done` is only ever returned by a Runner; you turn it into `not-started` for the next leg)
 - round: integer, starts at 1, +1 after each runner turn finishes
 - budget_total, budget_spent: integers (tool calls)
+- leg: integer, starts at 1 for every round, +1 after each Runner leg finishes (a session is executed in several legs, each by a fresh Runner)
+- session_spent: integer, tool calls spent by the Runner legs of the current round's session; reset to 0 when the Planner hands the round over
+
+Constants: **LEG_BUDGET = 60** tool calls per Runner leg, **SESSION_BUDGET = 500** tool calls per session (all its legs together), **MIN_LEG = 20** (a leg with fewer calls than this is not worth starting).
 
 **Write-ahead rule:** Update `state.json` BEFORE every spawn, resume or phase change, never after.
 - Before spawning/resuming: set "status": "in-progress" and "active_agent": "<agent name>". The order for every agent turn is: Budget gate, then this rule, then spawn or resume. Never mark an agent as started after the fact.
@@ -45,7 +49,7 @@ Read the chosen state.json. Restore <engagement_dir> the involvement and outcome
 
 **0.4 Recover the interrupted turn.**
 Agents from before the restart cannot be resumed. If status is in-progress or need-decision:
-- Charge the full Budget you gave that agent to budget_spent (60 for the Context-collector, 500 for the Planner and the Session-runner); its TOOL_CALLS_USED is lost.
+- Charge the full Budget you gave that agent to budget_spent (60 for the Context-collector, 500 for the Planner, the Leg budget for a Runner leg); its TOOL_CALLS_USED is lost. For a Runner leg, add the charge to `session_spent` too.
 - Then repair the state by phase:
 
 | phase | Check on disk | Set state to | Then |
@@ -53,7 +57,7 @@ Agents from before the restart cannot be resumed. If status is in-progress or ne
 | context | — | context / not-started | Re-run Phase 2 (the context-collector updates existing docs) |
 | plan | `sessions/TC-<Round>.md` exists AND its Test Charter section is filled | execute / not-started | Continue Phase 3 |
 | plan | file missing or charter empty | plan / not-started | Continue Phase 3 (spawns a fresh Planner) |
-| execute | — | execute / not-started | Continue Phase 3 (spawns a fresh Runner on the same `TC-<Round>.md`) |
+| execute | — | execute / not-started, `leg` + 1 | Continue Phase 3 (spawns a fresh Runner for the next leg on the same `TC-<Round>.md`; it rebuilds the state from the Session file and the Handoff file) |
 | report | — | report / not-started | Go to Phase 4 |
 
 - If pending_question is not empty: ask the user that question again, and include their answer in the fresh agent's delegation prompt as:
@@ -178,10 +182,9 @@ Read `<engagement_dir>/state.json`. Note `round`, `phase`, `status`. Do not read
 ### 3.2. Dispatch based on phase and status (from the `state.json`)
 
 **If phase is `plan` and status is `not-started`:**
-- Run the Budget gate now. Do not spawn or resume until it passes.
-- Run the **write-ahead rule** now (`active_agent`: `planner`).
-- Then start the Planner. First round: spawn the `exploratory-testing:planner` agent and give it the name `planner`.
-- Later rounds: resume the existing Planner by sending a message to `planner` instead of spawning a new one. **If resuming fails** (for example, the session was restarted and `planner` is not available), spawn a new `exploratory-testing:planner` as in the first round.
+- Run the Budget gate now. Do not spawn until it passes.
+- Run the **write-ahead rule** now (`active_agent`: `planner-<Round>`).
+- Then spawn a NEW `exploratory-testing:planner` agent and give it the name `planner-<Round>`. Spawn a new Planner for every round. Never resume a Planner from an earlier round: it carries no memory between rounds on purpose, and `<engagement_dir>/plan.md` (which it owns) is what keeps the engagement consistent. (Resume `planner-<Round>` only to pass it a user's answer within the same round, see 3.3.)
 - Use this delegation prompt, filling in the values:
 
 ```
@@ -189,6 +192,7 @@ Read `<engagement_dir>/state.json`. Note `round`, `phase`, `status`. Do not read
   Engagement dir: <engagement_dir>
   Context dir: <context_dir>
   Round: <Round>
+  Engagement plan: <engagement_dir>/plan.md
   Session file: <engagement_dir>/sessions/TC-<Round>.md.
   Modes: involvement=<involvement>, outcome=<outcome>
   Budget: 500 tool calls
@@ -197,9 +201,19 @@ Read `<engagement_dir>/state.json`. Note `round`, `phase`, `status`. Do not read
 
 
 **If phase is `execute` and status is `not-started`:**
-- Run the Budget gate now. Do not spawn or resume until it passes.
-- Run the **write-ahead rule** now (`active_agent`: `session-runner-<Round>`).
-- Then spawn the `exploratory-testing:session-runner` agent and give it the name `session-runner-<Round>` (so each round's Runner has a unique name). Spawn a new Runner for each round.
+- Compute the leg budget: `leg_budget = min(LEG_BUDGET, SESSION_BUDGET - session_spent)`. If `leg_budget` is below MIN_LEG, do not start another leg: go to "End of a session" in 3.5 with the result `session-out-of-budget`.
+- Run the Budget gate now (minimum needed: `leg_budget`). Do not spawn or resume until it passes.
+- **Choose the Runner from the charter.** Run:
+      grep -i -m1 -o -E 'Target: *(mobile-web|mobile|web)' "<engagement_dir>/sessions/TC-<Round>.md"
+  Take the word after `Target:` (the Planner writes it as the first line of the charter's Setup row):
+  | Target | Agent |
+  |---|---|
+  | `mobile` | `exploratory-testing:session-runner-mobile` |
+  | `web` | `exploratory-testing:session-runner-web` |
+  | `mobile-web` | `exploratory-testing:session-runner-mobile-web` |
+  If there is no match, use `session-runner-mobile-web` (it has every tool and always works, but costs more) and tell the user in one line that the charter has no `Target:` line. Keep the same agent for every leg of the session.
+- Run the **write-ahead rule** now (`active_agent`: `session-runner-<Round>-leg<leg>`).
+- Then spawn that agent and give it the name `session-runner-<Round>-leg<leg>` (so each leg's Runner has a unique name). Spawn a new Runner for each leg; never resume a Runner from an earlier leg.
 - Use this delegation prompt:
 
 ```
@@ -208,9 +222,11 @@ Read `<engagement_dir>/state.json`. Note `round`, `phase`, `status`. Do not read
   Context dir: <context_dir>
   Round: <Round>
   Session file: <engagement_dir>/sessions/TC-<Round>.md.
+  Handoff file: <engagement_dir>/sessions/TC-<Round>.handoff.md
+  Leg: <leg>
   Modes: involvement=<involvement>, outcome=<outcome>
-  Budget: 500 tool calls
-  Read <workspace_dir>/WORKSPACE.md first, then follow your instructions to execute the charter in the Session file.
+  Leg budget: <leg_budget> tool calls
+  Read <workspace_dir>/WORKSPACE.md first, then follow your instructions to execute leg <leg> of the charter in the Session file.
 ```
 
 
@@ -235,12 +251,18 @@ Do not check workspace files while an agent is still running.
 
 ### 3.5. Verify the handoff
 After a Planner turn with `status: session-done`:
-- change `state.json` and set `"phase": "execute"`, `"status": "not-started";
+- change `state.json` and set `"phase": "execute"`, `"status": "not-started"`, `"leg": 1`, `"session_spent": 0`;
 After a Planner turn with `status: run-done`:
 - change `state.json` and set `"phase": "report"`, `"status": "not-started".
-After a Runner turn with `status: session-done` or `status: session-out-of-budget`:
-- change `state.json` and set `"phase": "plan"`, `"status": "not-started"`, increment `round`.
-If a Runner finishes with no STATUS block, treat it as 'session-out-of-budget' with a warning that it was cut off. Don’t wait on it forever. 
+After a Runner turn with `status: leg-done`:
+- (budget accounting first, see below) increment `leg`; set `"phase": "execute"`, `"status": "not-started"`. The next pass of the loop starts the next leg, or ends the session if the session budget is used up (see the execute dispatch).
+After a Runner turn with `status: session-done`:
+- go to "End of a session".
+If a Runner finishes with no STATUS block (it was cut off), treat it as `leg-done` with a warning. The session continues from the Session file; the full leg budget was charged, so a Runner that keeps getting cut off runs the session budget out. Don’t wait on it forever.
+
+**End of a session** (a Runner returned `session-done`, or no further leg can start):
+- If the session ended for lack of budget, set the `## Status:` line of `TC-<Round>.md` to `session-out-of-budget`.
+- Change `state.json`: `"phase": "plan"`, `"status": "not-started"`, increment `round`.
 Keep your context small. Use only the agents' summaries and the checks above.
 
 Continue the loop.
@@ -250,14 +272,14 @@ Continue the loop.
 Run this before every spawn or resume of any agent.
 
 1. remaining = budget_total - budget_spent, both from `state.json`. If `budget_total` is 0 or missing, read "Budget" from `<engagement_dir>/engagement.md` first and write it to `state.json` as `budget_total`. That is the only time the gate reads `engagement.md`.
-2. Minimum needed: the Budget you are about to give that agent (60 for the Context-collector, 500 for the Planner or the Session-runner).
+2. Minimum needed: the Budget you are about to give that agent (60 for the Context-collector, 500 for the Planner, the leg budget for a Runner leg).
 3. If remaining is below the minimum: do NOT spawn or resume. Set state.json phase=report, status=not-started. Tell the user "Budget exhausted: <spent>/<total> tool calls used." Continue with Phase 4 (Report).
 
 ## Budget accounting
-Run this after each agent finishes a turn with session-done, run-done or session-out-of-budget status.
-- add TOOL_CALLS_USED to budget_spent in state.json.
+Run this after each agent finishes a turn with session-done, run-done, leg-done or session-out-of-budget status.
+- add TOOL_CALLS_USED to budget_spent in state.json (for a Runner leg, also to session_spent).
 - If the reply has no TOOL_CALLS_USED (the agent was cut off), charge the full Budget you gave it.
-- Do this for the context-collector, planner and runner alike.
+- Do this for the context-collector, planner and runner alike. Run it after every Runner leg that finishes with `leg-done`, too.
 - Do NOT do this when an agent finishes with the `need-decision` status.
 
 

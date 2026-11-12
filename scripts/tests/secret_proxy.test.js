@@ -104,3 +104,79 @@ test('with no allowed tools every reference is blocked', async (t) => {
   const r = await p.call('browser_type', { target: 'e1', text: 'secret:TEST_PASSWORD' });
   assert.strictEqual(r.result.isError, true);
 });
+
+// --------------------------------------------------------------------------- output filters
+
+function startFilteringProxy(t) {
+  const proxy = spawn(process.execPath, [PROXY, '--output-filters', 'appium_screenshot:appium-screenshot,appium_screenshot_structured:appium-screenshot,appium_screenshot_file:appium-screenshot,appium_get_page_source:appium-page-source',
+    '--secrets-file', path.join(os.tmpdir(), 'no-such-secrets.env'), '--', process.execPath, FAKE], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const pending = new Map();
+  let buffer = '';
+  proxy.stdout.on('data', (chunk) => {
+    buffer += chunk;
+    let i;
+    while ((i = buffer.indexOf('\n')) >= 0) {
+      const message = JSON.parse(buffer.slice(0, i));
+      buffer = buffer.slice(i + 1);
+      pending.get(message.id)?.(message);
+    }
+  });
+  let nextId = 1;
+  t.after(() => { proxy.stdin.end(); proxy.kill(); });
+  return (name, args = {}) => new Promise((resolve) => {
+    const id = nextId++;
+    pending.set(id, resolve);
+    proxy.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } })}\n`);
+  });
+}
+
+test('screenshot result no longer carries the base64 PNG; it names a saved file', async (t) => {
+  const call = startFilteringProxy(t);
+  const r = await call('appium_screenshot');
+  const text = r.result.content[0].text;
+  assert.match(text, /^Screenshot saved: .*screenshot-.*\.png \(PNG, 1206x2622px/);
+  assert.ok(JSON.stringify(r).length < 20000, 'result must be small');
+  assert.ok(!JSON.stringify(r).includes('"screenshot"'));
+  const file = text.match(/saved: (\S+\.png)/)[1];
+  assert.ok(fs.existsSync(file));
+});
+
+test('page source is compacted: visible labelled elements only, keyboard keys folded, full XML saved', async (t) => {
+  const call = startFilteringProxy(t);
+  const r = await call('appium_get_page_source');
+  const text = r.result.content[0].text;
+  assert.match(text, /Page source, compact: \d+ of \d+ elements/);
+  assert.match(text, /Button "Save & close" id="save-btn" \[disabled\]/);
+  assert.match(text, /TextField "Email" id="email" value="a@b\.c"/);
+  assert.ok(!text.includes('Offscreen text'), 'invisible elements are dropped');
+  assert.match(text, /Keyboard/);
+  assert.match(text, /\(2 keys not listed\)/);
+  const file = text.match(/Full XML with every attribute: (\S+\.xml)/)[1];
+  assert.ok(fs.readFileSync(file, 'utf8').includes('Offscreen text'));
+});
+
+test('tools without a filter are passed through unchanged', async (t) => {
+  const call = startFilteringProxy(t);
+  const r = await call('browser_click', { target: 'e2' });
+  assert.strictEqual(r.result.content[0].text, 'ok browser_click {"target":"e2"}');
+});
+
+test('an unknown filter name is rejected at start-up', () => {
+  const { parseArgs } = require('../secret_proxy.js');
+  assert.throws(() => parseArgs(['--output-filters', 'x:nope', '--', 'node']), /unknown output filter/);
+});
+
+test('screenshot in structuredContent (what Claude Code gets from appium-mcp) is shrunk and structuredContent is dropped', async (t) => {
+  const call = startFilteringProxy(t);
+  const r = await call('appium_screenshot_structured');
+  assert.strictEqual(r.result.structuredContent, undefined);
+  assert.ok(JSON.stringify(r).length < 20000, 'result must be small');
+  assert.ok(!r.result.content.some((b) => b.type === 'resource'));
+  assert.match(r.result.content[0].text, /Screenshot saved: \S+\.png \(PNG, 1206x2622px/);
+});
+
+test('screenshot that only exists as a file (NO_UI) gets a path and a preview', async (t) => {
+  const call = startFilteringProxy(t);
+  const r = await call('appium_screenshot_file');
+  assert.match(r.result.content[0].text, /Screenshot saved: \S+fake-appium-shot-\d+\.png \(PNG, 1206x2622px/);
+});

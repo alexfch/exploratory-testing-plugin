@@ -10,5 +10,7 @@
     "budget_total": 0,
     "budget_spent": 0,
     "active_agent": "",
-    "pending_question": ""
+    "pending_question": "",
+    "leg": 1,
+    "session_spent": 0
 }
