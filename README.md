@@ -140,4 +140,4 @@ Runs are resumable: if a session is interrupted, the orchestrator finds unfinish
 
 ## License and author
 
-Author: Oleksandr Bolzhelarskyi. No license file is included yet; add one before distributing.
+Author: Oleksandr Bolzhelarskyi. Licensed under the [MIT License](LICENSE).
